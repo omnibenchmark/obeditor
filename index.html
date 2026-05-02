@@ -122,6 +122,29 @@
     padding: 1px 6px;
     border-radius: 2px;
   }
+  #repo-tag {
+    display: none;
+    align-items: center;
+    gap: 4px;
+    margin-left: 12px;
+  }
+  #repo-tag.show { display: inline-flex; }
+  #repo-tag a {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    padding: 2px 8px;
+    border-radius: 3px;
+    border: 1px solid var(--badge-border, var(--border));
+    background: var(--badge-bg, var(--bg));
+    color: var(--badge-fg, var(--text));
+    text-decoration: none;
+    transition: filter .15s;
+  }
+  #repo-tag a:hover { filter: brightness(1.25); }
+  #repo-tag .sep { color: var(--text-dim); font-size: 11px; }
   #right-tabs {
     flex: 1;
     display: flex;
@@ -677,6 +700,11 @@
   <div class="pane-label">
     benchmark.yaml
     <span class="badge">YAML</span>
+    <span id="repo-tag" title="Source repository on GitHub">
+      <a id="repo-tag-org" target="_blank" rel="noopener"></a>
+      <span class="sep">/</span>
+      <a id="repo-tag-repo" target="_blank" rel="noopener"></a>
+    </span>
   </div>
   <div id="right-tabs">
     <button class="tab-btn active" data-tab="check">
@@ -959,7 +987,27 @@ require(["vs/editor/editor.main"], () => {
   document.getElementById("source-clear").addEventListener("click", () => setSourceUrl(null));
 
   loadCatalogAndStart();
+  maybeLoadFromUrlParam();
 });
+
+// ── URL-parameter auto-load ──────────────────────────────────────────────────
+// Visiting `index.html?url=https://github.com/<org>/<repo>/blob/<ref>/benchmark.yaml`
+// auto-triggers the trust prompt (or fetches directly if the org is trusted).
+function maybeLoadFromUrlParam() {
+  const params = new URLSearchParams(location.search);
+  const url = params.get("url");
+  if (!url) return;
+  const parsed = parseGitHubUrl(url);
+  if (!parsed) {
+    setStatus("error", "?url=… is not a valid GitHub URL");
+    return;
+  }
+  if (isOrgTrusted(parsed.org)) {
+    fetchAndLoad(parsed);
+  } else {
+    showTrustPrompt(parsed);
+  }
+}
 
 // ── GitHub URL handling + trust ──────────────────────────────────────────────
 function parseGitHubUrl(input) {
@@ -1115,12 +1163,41 @@ async function fetchAndLoad(parsed) {
 function setSourceUrl(url) {
   loadedSourceUrl = url;
   const pill = document.getElementById("source-pill");
+  const tag  = document.getElementById("repo-tag");
+  const orgA  = document.getElementById("repo-tag-org");
+  const repoA = document.getElementById("repo-tag-repo");
   if (url) {
     document.getElementById("source-url-text").textContent = url;
     pill.style.display = "";
+    const parsed = parseGitHubUrl(url);
+    if (parsed) {
+      applyBadgeColors(orgA,  parsed.org);
+      applyBadgeColors(repoA, parsed.org + "/" + parsed.repo);
+      orgA.textContent  = parsed.org;
+      repoA.textContent = parsed.repo;
+      orgA.href  = `https://github.com/${parsed.org}`;
+      repoA.href = `https://github.com/${parsed.org}/${parsed.repo}`;
+      tag.classList.add("show");
+    } else {
+      tag.classList.remove("show");
+    }
   } else {
     pill.style.display = "none";
+    tag.classList.remove("show");
   }
+}
+
+// Stable string → hue: same string always picks the same color.
+function strHashHue(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = (((h << 5) + h) ^ s.charCodeAt(i)) >>> 0;
+  return h % 360;
+}
+function applyBadgeColors(el, key) {
+  const hue = strHashHue(key);
+  el.style.setProperty("--badge-bg",     `hsla(${hue}, 65%, 50%, 0.32)`);
+  el.style.setProperty("--badge-fg",     `hsl(${hue}, 90%, 82%)`);
+  el.style.setProperty("--badge-border", `hsla(${hue}, 75%, 60%, 0.85)`);
 }
 
 // ── Release catalog ──────────────────────────────────────────────────────────
