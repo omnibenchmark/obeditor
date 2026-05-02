@@ -476,7 +476,83 @@
   .module-row:hover { border-color: var(--accent); }
   .module-row input { cursor: pointer; }
   .module-row .mid { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--text); }
-  .module-row .mname { color: var(--text-dim); font-size: 12px; margin-left: auto; }
+  .module-row .mname { color: var(--text-dim); font-size: 12px; margin-left: 4px; }
+  .module-row .row-spacer { flex: 1; }
+  .module-row .param-mode {
+    font-family: inherit;
+    font-size: 11px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 2px 6px;
+    margin-left: 8px;
+  }
+  .module-row .param-mode:hover:not(:disabled) { border-color: var(--accent); }
+  .module-row .param-mode:disabled { opacity: .5; }
+  .module-row .pcount {
+    font-size: 10px;
+    color: var(--text-dim);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 1px 7px;
+    margin-left: 6px;
+  }
+  .module-row .pcount.warn { color: var(--error); border-color: var(--error); }
+  .combo-list {
+    margin: 4px 0 8px 28px;
+    padding: 8px 12px;
+    border-left: 2px solid var(--border);
+    background: rgba(255,255,255,.02);
+    border-radius: 0 4px 4px 0;
+  }
+  .combo-list-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+  .combo-list-head a { color: var(--accent); cursor: pointer; }
+  .combo-list-head a:hover { text-decoration: underline; }
+  .combo-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 3px 4px;
+    font-size: 11px;
+    cursor: pointer;
+    border-radius: 3px;
+  }
+  .combo-row:hover { background: rgba(255,255,255,.04); }
+  .combo-row .ccli {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+  }
+  .combo-row .chash {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--text-dim);
+    font-size: 10px;
+  }
+  .combo-list-more {
+    font-size: 11px;
+    color: var(--accent);
+    cursor: pointer;
+    margin-top: 4px;
+  }
+  .combo-list-more:hover { text-decoration: underline; }
+  .combo-list-warn {
+    font-size: 11px;
+    color: var(--error);
+    margin-top: 4px;
+  }
   .selectall {
     font-size: 11px;
     color: var(--text-dim);
@@ -776,9 +852,17 @@ let releaseCatalog = null;       // { default, releases: [{version,label,url,hid
 let currentWheelUrl = null;
 
 // ── Filter wizard state ──────────────────────────────────────────────────────
-let wizardStages = [];           // [{id, modules: [{id, name}]}, ...]
-let wizardStep   = 0;            // 0..N-1 = stage steps; N = result step
-let wizardPicks  = {};           // { stage_id: Set<module_id> }
+// wizardStages: [{id, modules:[{id, name, params:[{hash, items, cli}] | null}]}]
+// wizardPicks:  { stage_id: { mod_id: "all" | "first" | string[] } }
+//   - module absent from object  → not picked
+//   - "all"                      → keep parameters as-is (default)
+//   - "first"                    → keep first combo of first set
+//   - string[]                   → keep listed combo hashes
+const COMBO_INLINE_LIMIT  = 50;
+const COMBO_HARD_LIMIT    = 500;
+let wizardStages = [];
+let wizardStep   = 0;
+let wizardPicks  = {};
 let wizardParentHash = null;
 let wizardParentUrl  = null;
 let wizardLastResult = null;     // { filtered_yaml, blob_json, blob_packed, parent_hash, parent_url }
@@ -1090,7 +1174,7 @@ function startWorker(wheelUrl) {
   setOverlay("Initialising Pyodide…");
   setPyodideStatus("loading", "Starting…");
   // Cache-bust: worker.js evolves with index.html; keep them aligned.
-  worker = new Worker("worker.js?v=4");
+  worker = new Worker("worker.js?v=5");
 
   worker.onmessage = ({ data }) => {
     switch (data.type) {
@@ -1280,14 +1364,26 @@ function updateWizardData(wizardJson, parentHash, parentUrl) {
   }
   const stages = JSON.parse(wizardJson);
   // Reconcile picks: drop entries for stages/modules no longer present.
+  // For Custom specs, also drop combo hashes that no longer exist.
   const newPicks = {};
   for (const st of stages) {
-    const ids = new Set(st.modules.map(m => m.id));
     const prev = wizardPicks[st.id];
-    if (prev) {
-      const kept = new Set([...prev].filter(id => ids.has(id)));
-      if (kept.size) newPicks[st.id] = kept;
+    if (!prev) continue;
+    const stagePicks = {};
+    for (const m of st.modules) {
+      if (!(m.id in prev)) continue;
+      const spec = prev[m.id];
+      if (Array.isArray(spec)) {
+        const validHashes = new Set((m.params || []).map(p => p.hash));
+        const kept = spec.filter(h => validHashes.has(h));
+        if (kept.length) stagePicks[m.id] = kept;
+        else if (m.params && m.params.length) stagePicks[m.id] = "all";
+        else stagePicks[m.id] = "all";
+      } else {
+        stagePicks[m.id] = spec;
+      }
     }
+    if (Object.keys(stagePicks).length) newPicks[st.id] = stagePicks;
   }
   wizardStages = stages;
   wizardPicks = newPicks;
@@ -1321,7 +1417,7 @@ function renderWizard() {
   // Stepper pills
   stepperEl.innerHTML = "";
   wizardStages.forEach((st, i) => {
-    const cnt = (wizardPicks[st.id]?.size) || 0;
+    const cnt = stagePickCount(st.id);
     const pill = document.createElement("span");
     pill.className = "step-pill" + (i === wizardStep ? " active" : (cnt > 0 ? " done" : ""));
     pill.innerHTML = `${i+1}. ${escapeHtml(st.id)}<span class="count">${cnt}/${st.modules.length}</span>`;
@@ -1334,50 +1430,13 @@ function renderWizard() {
 
   if (wizardStep < wizardStages.length) {
     // Stage step
-    const st = wizardStages[wizardStep];
-    const picked = wizardPicks[st.id] || new Set();
-    const rows = st.modules.map(m => {
-      const checked = picked.has(m.id) ? "checked" : "";
-      return `<label class="module-row">
-        <input type="checkbox" data-mid="${escapeAttr(m.id)}" ${checked}>
-        <span class="mid">${escapeHtml(m.id)}</span>
-        <span class="mname">${escapeHtml(m.name && m.name !== m.id ? m.name : "")}</span>
-      </label>`;
-    }).join("");
-    bodyEl.innerHTML = `
-      <h2>Stage <code>${escapeHtml(st.id)}</code></h2>
-      <div class="stage-hint">Pick at least one module to keep. Unchecked modules are pruned in the output.</div>
-      <div class="selectall">
-        <a data-act="all">Select all</a>
-        <a data-act="none">Select none</a>
-      </div>
-      <div id="filter-modules">${rows}</div>
-    `;
-    bodyEl.querySelectorAll('input[type=checkbox]').forEach(cb => {
-      cb.addEventListener("change", () => {
-        const set = wizardPicks[st.id] || new Set();
-        if (cb.checked) set.add(cb.dataset.mid); else set.delete(cb.dataset.mid);
-        if (set.size) wizardPicks[st.id] = set; else delete wizardPicks[st.id];
-        // Re-render stepper counts only.
-        renderWizard();
-      });
-    });
-    bodyEl.querySelectorAll('.selectall a').forEach(a => {
-      a.addEventListener("click", () => {
-        if (a.dataset.act === "all") {
-          wizardPicks[st.id] = new Set(st.modules.map(m => m.id));
-        } else {
-          delete wizardPicks[st.id];
-        }
-        renderWizard();
-      });
-    });
+    renderStageStep(wizardStages[wizardStep], bodyEl);
     footerEl.style.display = "";
     backBtn.disabled = wizardStep === 0;
-    const haveAtLeastOne = (wizardPicks[st.id]?.size || 0) > 0;
-    nextBtn.disabled = !haveAtLeastOne;
+    const ok = stageStepIsValid(wizardStages[wizardStep]);
+    nextBtn.disabled = !ok.valid;
     nextBtn.textContent = (wizardStep === wizardStages.length - 1) ? "Generate ✨" : "Next ›";
-    statusEl.textContent = haveAtLeastOne ? "" : "Select ≥1 module to continue.";
+    statusEl.textContent = ok.valid ? "" : ok.reason;
   } else {
     // Result step
     const r = wizardLastResult;
@@ -1388,14 +1447,16 @@ function renderWizard() {
       nextBtn.style.display = "none";
       return;
     }
-    const totalKept = Object.values(wizardPicks).reduce((a, s) => a + s.size, 0);
     const stagesKept = Object.keys(wizardPicks).length;
+    const totalKept  = Object.values(wizardPicks).reduce((a, s) => a + Object.keys(s).length, 0);
+    const totalCombos = totalCombosKept();
     const shortHash = (r.parent_hash || "").slice(0, 12);
     bodyEl.innerHTML = `
       <div class="result-section">
         <h3>Summary</h3>
         <div style="font-size:12px;color:var(--text-dim);">
-          ${stagesKept} stage${stagesKept===1?"":"s"} · ${totalKept} module${totalKept===1?"":"s"} kept ·
+          ${stagesKept} stage${stagesKept===1?"":"s"} · ${totalKept} module${totalKept===1?"":"s"} ·
+          ${totalCombos} param combo${totalCombos===1?"":"s"} ·
           subset-of <code>sha256:${escapeHtml(shortHash)}…</code>
           ${r.parent_url ? '· canonical-url <code>' + escapeHtml(r.parent_url) + '</code>' : ''}
           ${loadedSourceUrl ? '· derived-from <code>' + escapeHtml(loadedSourceUrl) + '</code>' : ''}
@@ -1446,12 +1507,254 @@ function renderWizard() {
 function runFilter() {
   if (!pyodideReady) return;
   const yaml = yamlEditor.getValue();
-  const picks = {};
-  for (const [sid, set] of Object.entries(wizardPicks)) {
-    picks[sid] = [...set];
-  }
+  // Picks are already in v2 shape: {stage_id: {mod_id: spec}}.
   document.getElementById("filter-status").textContent = "Generating…";
-  worker.postMessage({ type: "filter", yaml, picks, derivedFrom: loadedSourceUrl });
+  worker.postMessage({ type: "filter", yaml, picks: wizardPicks, derivedFrom: loadedSourceUrl });
+}
+
+// ── Wizard helpers ───────────────────────────────────────────────────────────
+function stagePickCount(sid) {
+  const sp = wizardPicks[sid];
+  return sp ? Object.keys(sp).length : 0;
+}
+
+function combosKeptForModule(stage, mid) {
+  // Returns number of param combinations the spec retains for this module.
+  const sp = wizardPicks[stage.id]; if (!sp) return 0;
+  if (!(mid in sp)) return 0;
+  const m = stage.modules.find(x => x.id === mid);
+  const total = m && m.params ? m.params.length : 0;
+  if (!total) return 1;                  // module without parameters → 1 implicit run
+  const spec = sp[mid];
+  if (spec === "all") return total;
+  if (spec === "first") return 1;
+  if (Array.isArray(spec)) return spec.length;
+  return 0;
+}
+
+function totalCombosKept() {
+  let n = 0;
+  for (const st of wizardStages) {
+    const sp = wizardPicks[st.id]; if (!sp) continue;
+    for (const mid of Object.keys(sp)) n += combosKeptForModule(st, mid);
+  }
+  return n;
+}
+
+function stageStepIsValid(stage) {
+  const sp = wizardPicks[stage.id];
+  if (!sp || Object.keys(sp).length === 0) return { valid: false, reason: "Select ≥1 module to continue." };
+  for (const mid of Object.keys(sp)) {
+    const spec = sp[mid];
+    if (Array.isArray(spec) && spec.length === 0) {
+      return { valid: false, reason: `Pick ≥1 combo for ${mid} (or switch to All / First).` };
+    }
+  }
+  return { valid: true };
+}
+
+function setSpec(sid, mid, spec) {
+  if (!wizardPicks[sid]) wizardPicks[sid] = {};
+  wizardPicks[sid][mid] = spec;
+}
+function unsetSpec(sid, mid) {
+  if (!wizardPicks[sid]) return;
+  delete wizardPicks[sid][mid];
+  if (!Object.keys(wizardPicks[sid]).length) delete wizardPicks[sid];
+}
+
+// In-memory per-render UI state for "show all combos" expansion (transient).
+const _expandAllCombos = new Set(); // keys: `${sid}:${mid}`
+
+function renderStageStep(stage, bodyEl) {
+  bodyEl.innerHTML = `
+    <h2>Stage <code>${escapeHtml(stage.id)}</code></h2>
+    <div class="stage-hint">
+      Pick at least one module. For modules with parameters, choose
+      <strong>All</strong>, <strong>First</strong> (single combo, debug),
+      or <strong>Custom</strong>.
+    </div>
+    <div class="selectall">
+      <a data-act="all">Select all</a>
+      <a data-act="none">Select none</a>
+      <span style="margin-left:auto;color:var(--text-dim);">${stagePickCount(stage.id)}/${stage.modules.length} modules</span>
+    </div>
+    <div id="filter-modules"></div>
+  `;
+  const modsEl = bodyEl.querySelector("#filter-modules");
+  for (const m of stage.modules) modsEl.appendChild(buildModuleRow(stage, m));
+  bodyEl.querySelectorAll('.selectall a').forEach(a => {
+    a.addEventListener("click", () => {
+      if (a.dataset.act === "all") {
+        for (const m of stage.modules) {
+          if (!wizardPicks[stage.id] || !(m.id in wizardPicks[stage.id])) {
+            setSpec(stage.id, m.id, "all");
+          }
+        }
+      } else {
+        delete wizardPicks[stage.id];
+      }
+      renderWizard();
+    });
+  });
+}
+
+function buildModuleRow(stage, m) {
+  const sp = wizardPicks[stage.id] || {};
+  const isPicked = m.id in sp;
+  const spec = sp[m.id];
+  const params = m.params || [];
+  const hasParams = params.length > 0;
+  const tooMany   = params.length > COMBO_HARD_LIMIT;
+
+  const row = document.createElement("div");
+  row.className = "module-row";
+
+  // Checkbox
+  const cb = document.createElement("input");
+  cb.type = "checkbox";
+  cb.checked = isPicked;
+  cb.addEventListener("change", () => {
+    if (cb.checked) setSpec(stage.id, m.id, "all"); else unsetSpec(stage.id, m.id);
+    renderWizard();
+  });
+  row.appendChild(cb);
+
+  const mid = document.createElement("span");
+  mid.className = "mid";
+  mid.textContent = m.id;
+  row.appendChild(mid);
+
+  if (m.name && m.name !== m.id) {
+    const mname = document.createElement("span");
+    mname.className = "mname";
+    mname.textContent = m.name;
+    row.appendChild(mname);
+  }
+
+  const spacer = document.createElement("span");
+  spacer.className = "row-spacer";
+  row.appendChild(spacer);
+
+  if (hasParams) {
+    const sel = document.createElement("select");
+    sel.className = "param-mode";
+    sel.disabled = !isPicked;
+    sel.title = "Parameter selection mode";
+    const mode = (spec === "first") ? "first" : (Array.isArray(spec) ? "pick" : "all");
+    for (const [v, label] of [
+      ["all",   `All (${params.length} combo${params.length===1?"":"s"})`],
+      ["first", "First (debug)"],
+      ["pick",  tooMany ? `Custom… (disabled, >${COMBO_HARD_LIMIT})` : "Custom…"],
+    ]) {
+      const opt = document.createElement("option");
+      opt.value = v; opt.textContent = label;
+      if (v === "pick" && tooMany) opt.disabled = true;
+      if (v === mode) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    sel.addEventListener("change", () => {
+      if (sel.value === "all") setSpec(stage.id, m.id, "all");
+      else if (sel.value === "first") setSpec(stage.id, m.id, "first");
+      else setSpec(stage.id, m.id, Array.isArray(spec) ? spec : []);
+      renderWizard();
+    });
+    row.appendChild(sel);
+
+    const pcount = document.createElement("span");
+    const kept = combosKeptForModule(stage, m.id);
+    pcount.className = "pcount" + (isPicked && Array.isArray(spec) && spec.length === 0 ? " warn" : "");
+    pcount.textContent = isPicked
+      ? `${kept}/${params.length} kept`
+      : `${params.length} combos`;
+    row.appendChild(pcount);
+  }
+
+  const wrapper = document.createDocumentFragment();
+  wrapper.appendChild(row);
+
+  if (isPicked && Array.isArray(spec) && hasParams && !tooMany) {
+    wrapper.appendChild(buildComboList(stage, m, spec));
+  }
+  // Wrap into a single element since DocumentFragment doesn't render with margins consistently.
+  const div = document.createElement("div");
+  div.appendChild(wrapper);
+  return div;
+}
+
+function buildComboList(stage, m, spec) {
+  const params = m.params || [];
+  const wrap = document.createElement("div");
+  wrap.className = "combo-list";
+
+  const expandKey = `${stage.id}:${m.id}`;
+  const expanded = _expandAllCombos.has(expandKey);
+  const showLimit = expanded ? params.length : Math.min(COMBO_INLINE_LIMIT, params.length);
+
+  const head = document.createElement("div");
+  head.className = "combo-list-head";
+  const sel = new Set(spec);
+  head.innerHTML = `
+    <a data-act="all">All</a>
+    <a data-act="none">None</a>
+    <span>${sel.size}/${params.length} picked</span>
+  `;
+  head.querySelector('[data-act=all]').addEventListener("click", () => {
+    setSpec(stage.id, m.id, params.map(p => p.hash));
+    renderWizard();
+  });
+  head.querySelector('[data-act=none]').addEventListener("click", () => {
+    setSpec(stage.id, m.id, []);
+    renderWizard();
+  });
+  wrap.appendChild(head);
+
+  for (let i = 0; i < showLimit; i++) {
+    const p = params[i];
+    const row = document.createElement("label");
+    row.className = "combo-row";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = sel.has(p.hash);
+    cb.addEventListener("change", () => {
+      const cur = new Set(Array.isArray(wizardPicks[stage.id]?.[m.id]) ? wizardPicks[stage.id][m.id] : []);
+      if (cb.checked) cur.add(p.hash); else cur.delete(p.hash);
+      setSpec(stage.id, m.id, [...cur]);
+      renderWizard();
+    });
+    row.appendChild(cb);
+    const cli = document.createElement("span");
+    cli.className = "ccli";
+    cli.textContent = p.cli || JSON.stringify(p.items);
+    row.appendChild(cli);
+    const hash = document.createElement("span");
+    hash.className = "chash";
+    hash.textContent = "#" + p.hash;
+    row.appendChild(hash);
+    wrap.appendChild(row);
+  }
+
+  if (params.length > COMBO_INLINE_LIMIT) {
+    const more = document.createElement("div");
+    if (expanded) {
+      more.className = "combo-list-more";
+      more.textContent = `Show fewer (collapse to ${COMBO_INLINE_LIMIT})`;
+      more.addEventListener("click", () => {
+        _expandAllCombos.delete(expandKey);
+        renderWizard();
+      });
+    } else {
+      more.className = "combo-list-more";
+      more.textContent = `Show all ${params.length} combos (${params.length - COMBO_INLINE_LIMIT} more)`;
+      more.addEventListener("click", () => {
+        _expandAllCombos.add(expandKey);
+        renderWizard();
+      });
+    }
+    wrap.appendChild(more);
+  }
+
+  return wrap;
 }
 
 function download(filename, content, mime) {
