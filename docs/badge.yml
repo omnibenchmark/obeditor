@@ -1,0 +1,77 @@
+# "Edit in OBEditor" badge — recipe for benchmark READMEs
+#
+# Add a one-click badge to a benchmark repo so visitors land on OBEditor
+# with the YAML already loaded. The badge is just a shields.io image
+# wrapped in a link to OBEditor's `?url=` entry point.
+#
+# Anatomy of the link:
+#
+#   https://<obeditor-host>/?url=<github-url-to-benchmark.yaml>
+#
+# The `<github-url>` accepts either form:
+#   - https://github.com/<org>/<repo>/blob/<ref>/benchmark.yaml
+#   - https://raw.githubusercontent.com/<org>/<repo>/<ref>/benchmark.yaml
+#
+# Pin <ref> to a tag or commit SHA (not a branch). The whole point of a
+# badge is that clicking it always opens the same benchmark version.
+
+# ── Configure these for your repo ────────────────────────────────────────────
+obeditor_host: "https://<your-obeditor-host>"
+github_org:    "<org>"
+github_repo:   "<repo>"
+github_ref:    "v1.0.0"           # tag, branch, or commit SHA
+yaml_path:     "benchmark.yaml"
+
+# ── Badge image (shields.io static badge) ────────────────────────────────────
+# Format: label-message-color. `0078d4` is OBEditor's accent blue.
+# Use `?style=flat-square` for a sharper look, or `?style=for-the-badge`
+# for a chunkier badge that matches typical "Open in <X>" buttons.
+badge_image: "https://img.shields.io/badge/edit-obeditor-0078d4?style=flat"
+
+# ── Snippets ─────────────────────────────────────────────────────────────────
+# Replace the angle-bracket placeholders before pasting.
+
+markdown: |
+  [![Edit in OBEditor](https://img.shields.io/badge/edit-obeditor-0078d4?style=flat)](https://<your-obeditor-host>/?url=https://github.com/<org>/<repo>/blob/<ref>/benchmark.yaml)
+
+rst: |
+  .. image:: https://img.shields.io/badge/edit-obeditor-0078d4?style=flat
+     :target: https://<your-obeditor-host>/?url=https://github.com/<org>/<repo>/blob/<ref>/benchmark.yaml
+     :alt: Edit in OBEditor
+
+html: |
+  <a href="https://<your-obeditor-host>/?url=https://github.com/<org>/<repo>/blob/<ref>/benchmark.yaml">
+    <img src="https://img.shields.io/badge/edit-obeditor-0078d4?style=flat" alt="Edit in OBEditor">
+  </a>
+
+# ── Concrete example ─────────────────────────────────────────────────────────
+example:
+  org:  "omnibenchmark"
+  repo: "clustering-benchmark"
+  ref:  "v0.3.0"
+  markdown: |
+    [![Edit in OBEditor](https://img.shields.io/badge/edit-obeditor-0078d4?style=flat)](https://obeditor.example.org/?url=https://github.com/omnibenchmark/clustering-benchmark/blob/v0.3.0/benchmark.yaml)
+
+# ── Notes ────────────────────────────────────────────────────────────────────
+notes:
+  - |
+    URL-encoding the inner URL (the value of `?url=`) is optional — every
+    modern browser passes the literal `https://...` through correctly.
+    Encode it (`%3A%2F%2F` etc.) only if some intermediate tool strips or
+    rewrites the `&`/`?` characters.
+  - |
+    OBEditor's trust prompt fires automatically for orgs the visitor hasn't
+    trusted before. The defaults `omnibenchmark` and `omni-scrna` are
+    always trusted; everyone else gets the modal on first click.
+  - |
+    The badge does NOT pin a specific OBEditor version — the host serves
+    whatever omnibenchmark releases its `releases.yaml` catalogs. If you
+    need a frozen pairing, host your own copy of the editor.
+  - |
+    Self-hosting: `index.html`, `worker.js`, and `releases.yaml` are static
+    files. Drop them on any HTTP origin (GitHub Pages, Cloudflare Pages,
+    Netlify, an S3 bucket). No build step.
+  - |
+    If you want a badge that says something other than "edit | obeditor",
+    swap the label/message in the shields.io URL: `try-obeditor`,
+    `open in playground`, etc. URL-encode spaces as `%20` or `_`.
