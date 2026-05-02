@@ -8,7 +8,8 @@ let pyodide = null;
 // Each \n is a real JS escape → newline.  Each \\ is a literal backslash.
 // Python sees exactly what's written here.
 const PREVIEW_PY = [
-  "import io, json, warnings, re",
+  "import io, json, warnings, re, hashlib, gzip, base64",
+  "import yaml as _yaml",
   "from pathlib import PurePosixPath",
   "warnings.filterwarnings('ignore')",
   "",
@@ -314,13 +315,39 @@ const PREVIEW_PY = [
   "    out.write(f'    {flags[-1]}\\n')",
   "    return out.getvalue()",
   "",
+  "def _normalize_yaml(text):",
+  "    norm = '\\n'.join(line.rstrip() for line in text.splitlines())",
+  "    if not norm.endswith('\\n'): norm += '\\n'",
+  "    return norm",
+  "",
+  "def _parent_hash(text):",
+  "    return hashlib.sha256(_normalize_yaml(text).encode('utf-8')).hexdigest()",
+  "",
+  "def _wizard(bench):",
+  "    out = []",
+  "    for stage in bench.stages:",
+  "        out.append({",
+  "            'id': stage.id,",
+  "            'modules': [{'id': m.id, 'name': (getattr(m, 'name', None) or m.id)}",
+  "                        for m in stage.modules],",
+  "        })",
+  "    return out",
+  "",
   "def yaml_to_snakefile(yaml_content):",
   "    try:",
   "        from omnibenchmark.model.benchmark import Benchmark",
   "        bench = Benchmark.from_yaml(yaml_content)",
   "        snakefile, stats = _generate(bench)",
   "        mermaid = _generate_mermaid(bench)",
-  "        return {'ok': True, 'snakefile': snakefile, 'runner': _generate_runner(bench), 'stats': json.dumps(stats), 'mermaid': mermaid}",
+  "        raw = _yaml.safe_load(yaml_content)",
+  "        canonical_url = None",
+  "        if isinstance(raw, dict):",
+  "            canonical_url = raw.get('canonical-url') or raw.get('canonical_url')",
+  "        return {'ok': True, 'snakefile': snakefile, 'runner': _generate_runner(bench),",
+  "                'stats': json.dumps(stats), 'mermaid': mermaid,",
+  "                'wizard': json.dumps(_wizard(bench)),",
+  "                'parent_hash': _parent_hash(yaml_content),",
+  "                'parent_url': canonical_url}",
   "    except Exception as e:",
   "        import traceback",
   "        line = None",
@@ -328,6 +355,53 @@ const PREVIEW_PY = [
   "            line = e.problem_mark.line + 1",
   "        return {'ok': False, 'error': f'{type(e).__name__}: {e}',",
   "                'traceback': traceback.format_exc(), 'line': line}",
+  "",
+  "def filter_benchmark(yaml_content, picks_json):",
+  "    try:",
+  "        picks = json.loads(picks_json)",
+  "        raw = _yaml.safe_load(yaml_content)",
+  "        if not isinstance(raw, dict):",
+  "            return {'ok': False, 'error': 'YAML root must be a mapping'}",
+  "        parent_hash = _parent_hash(yaml_content)",
+  "        parent_url = raw.get('canonical-url') or raw.get('canonical_url')",
+  "        # Prune modules per stage; drop stages with no picks.",
+  "        new_stages = []",
+  "        for st in (raw.get('stages') or []):",
+  "            sid = st.get('id')",
+  "            kept = picks.get(sid) or []",
+  "            if not kept: continue",
+  "            kept_set = set(kept)",
+  "            modules = [m for m in (st.get('modules') or []) if m.get('id') in kept_set]",
+  "            if not modules: continue",
+  "            new_st = dict(st)",
+  "            new_st['modules'] = modules",
+  "            new_stages.append(new_st)",
+  "        out = dict(raw)",
+  "        out.pop('canonical-url', None); out.pop('canonical_url', None)",
+  "        subset = {'sha256': parent_hash}",
+  "        if parent_url: subset['url'] = parent_url",
+  "        out['subset-of'] = subset",
+  "        out['stages'] = new_stages",
+  "        # Reorder header keys for readability.",
+  "        head_keys = ['id', 'name', 'description', 'benchmarker', 'version', 'subset-of']",
+  "        ordered = {}",
+  "        for k in head_keys:",
+  "            if k in out: ordered[k] = out.pop(k)",
+  "        ordered.update(out)",
+  "        filtered_yaml = _yaml.safe_dump(ordered, sort_keys=False, default_flow_style=False, width=120)",
+  "        blob = {'v': 1, 'parent': {'sha256': parent_hash}, 'picks': picks}",
+  "        if parent_url: blob['parent']['url'] = parent_url",
+  "        blob_json = json.dumps(blob, separators=(',', ':'), sort_keys=True)",
+  "        packed = base64.urlsafe_b64encode(",
+  "            gzip.compress(blob_json.encode('utf-8'), compresslevel=9, mtime=0)",
+  "        ).decode('ascii').rstrip('=')",
+  "        return {'ok': True, 'filtered_yaml': filtered_yaml, 'blob_json': blob_json,",
+  "                'blob_packed': packed, 'parent_hash': parent_hash,",
+  "                'parent_url': parent_url}",
+  "    except Exception as e:",
+  "        import traceback",
+  "        return {'ok': False, 'error': f'{type(e).__name__}: {e}',",
+  "                'traceback': traceback.format_exc()}",
 ].join("\n");
 
 async function init(wheelUrl) {
@@ -411,13 +485,28 @@ async function convert(yaml) {
     const result = await pyodide.runPythonAsync("yaml_to_snakefile(_yaml_input)");
     const obj = result.toJs({ dict_converter: Object.fromEntries });
     result.destroy();
-    self.postMessage({ type: "result", ok: obj.ok, snakefile: obj.snakefile, runner: obj.runner, stats: obj.stats, mermaid: obj.mermaid, error: obj.error, line: obj.line });
+    self.postMessage({ type: "result", ok: obj.ok, snakefile: obj.snakefile, runner: obj.runner, stats: obj.stats, mermaid: obj.mermaid, error: obj.error, line: obj.line, wizard: obj.wizard, parent_hash: obj.parent_hash, parent_url: obj.parent_url });
   } catch (e) {
     self.postMessage({ type: "result", ok: false, error: e.message });
+  }
+}
+
+async function filterCmd({ yaml, picks }) {
+  if (!pyodide) return;
+  try {
+    pyodide.globals.set("_yaml_input", yaml);
+    pyodide.globals.set("_picks_json", JSON.stringify(picks));
+    const result = await pyodide.runPythonAsync("filter_benchmark(_yaml_input, _picks_json)");
+    const obj = result.toJs({ dict_converter: Object.fromEntries });
+    result.destroy();
+    self.postMessage({ type: "filtered", ok: obj.ok, filtered_yaml: obj.filtered_yaml, blob_json: obj.blob_json, blob_packed: obj.blob_packed, parent_hash: obj.parent_hash, parent_url: obj.parent_url, error: obj.error });
+  } catch (e) {
+    self.postMessage({ type: "filtered", ok: false, error: e.message });
   }
 }
 
 self.onmessage = async ({ data }) => {
   if (data.type === "init")    await init(data.wheelUrl);
   if (data.type === "convert") await convert(data.yaml);
+  if (data.type === "filter")  await filterCmd(data);
 };
