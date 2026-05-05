@@ -171,15 +171,6 @@
     border-bottom: 2px solid var(--accent);
     background: rgba(0,120,212,.08);
   }
-  .tab-btn .tab-badge {
-    margin-left: 6px;
-    font-size: 9px;
-    padding: 1px 5px;
-    border-radius: 2px;
-    background: var(--border);
-    color: var(--text-dim);
-  }
-  .tab-btn.active .tab-badge { background: var(--accent-dim); color: #fff; }
   #tab-copy {
     margin-left: auto;
     align-self: center;
@@ -699,7 +690,6 @@
   <select id="version-select" disabled>
     <option>loading…</option>
   </select>
-  <div class="tag">OmniBenchmark Playground</div>
 </div>
 
 <div id="pane-bar">
@@ -714,16 +704,16 @@
   </div>
   <div id="right-tabs">
     <button class="tab-btn active" data-tab="check">
-      Check <span class="tab-badge" id="check-tab-badge">—</span>
+      Check
     </button>
     <button class="tab-btn" data-tab="snakefile">
-      Snakefile <span class="tab-badge">preview</span>
+      Snakefile
     </button>
     <button class="tab-btn" data-tab="runner">
-      run.sh <span class="tab-badge">bash</span>
+      run.sh
     </button>
     <button class="tab-btn" data-tab="filter">
-      Filter <span class="tab-badge">subset</span>
+      Filter
     </button>
     <button id="tab-copy" title="Copy to clipboard" style="display:none">Copy</button>
   </div>
@@ -1264,7 +1254,7 @@ function startWorker(wheelUrl) {
   setOverlay("Initialising Pyodide…");
   setPyodideStatus("loading", "Starting…");
   // Cache-bust: worker.js evolves with index.html; keep them aligned.
-  worker = new Worker("worker.js?v=6");
+  worker = new Worker("worker.js?v=7");
 
   worker.onmessage = ({ data }) => {
     switch (data.type) {
@@ -1414,21 +1404,14 @@ function renderCheck(ok, errMsg, statsJson, mermaidSrc, ioSummaryJson) {
   const badge = document.getElementById("check-badge");
   const icon  = document.getElementById("check-icon");
   const msg   = document.getElementById("check-msg");
-  const tabBadge = document.getElementById("check-tab-badge");
   if (ok) {
     badge.className = "check-badge ok";
     icon.textContent  = "✓";
     msg.textContent   = "Validation passed";
-    tabBadge.textContent = "OK";
-    tabBadge.style.background = "rgba(78,201,176,.3)";
-    tabBadge.style.color = "var(--ok)";
   } else {
     badge.className = "check-badge error";
     icon.textContent  = "✗";
     msg.textContent   = (errMsg || "Validation failed").split("\n")[0];
-    tabBadge.textContent = "ERR";
-    tabBadge.style.background = "rgba(244,71,71,.3)";
-    tabBadge.style.color = "var(--error)";
   }
   if (ok && statsJson) renderStats(statsJson);
   if (ok && mermaidSrc) {
