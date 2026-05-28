@@ -288,17 +288,44 @@
   .stat-chip .val { font-size: 24px; font-weight: 700; color: var(--text); line-height: 1.2; }
   .stat-chip .lbl { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
   #mermaid-container {
+    position: relative;
     background: #2a2a2a;
     border: 1px solid var(--border);
     border-radius: 5px;
-    padding: 16px;
-    overflow: auto;
     min-height: 80px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    height: 420px;
+    overflow: hidden;
+    cursor: grab;
   }
-  #mermaid-container svg { max-width: 100%; height: auto; }
+  #mermaid-container.panning { cursor: grabbing; }
+  #mermaid-container:fullscreen { height: 100%; width: 100%; background: #2a2a2a; }
+  #mermaid-viewport {
+    width: 100%;
+    height: 100%;
+    transform-origin: 0 0;
+  }
+  #mermaid-viewport svg { display: block; max-width: none; height: auto; }
+  #mermaid-controls {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    gap: 4px;
+    z-index: 2;
+  }
+  #mermaid-controls button {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 16px;
+    line-height: 1;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  #mermaid-controls button:hover { background: var(--border); }
   .io-table { width: 100%; border-collapse: collapse; font-size: 12px; }
   .io-table th, .io-table td { padding: 6px 10px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
   .io-table th { background: var(--surface); color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: .6px; font-size: 10px; }
@@ -740,7 +767,15 @@
       </div>
       <div class="check-section" id="mermaid-section" style="display:none">
         <h3>Pipeline Topology</h3>
-        <div id="mermaid-container"></div>
+        <div id="mermaid-container">
+          <div id="mermaid-controls">
+            <button type="button" data-zoom="in" title="Zoom in">+</button>
+            <button type="button" data-zoom="out" title="Zoom out">−</button>
+            <button type="button" data-zoom="reset" title="Reset view">⊙</button>
+            <button type="button" data-zoom="fullscreen" title="Fullscreen">⛶</button>
+          </div>
+          <div id="mermaid-viewport"></div>
+        </div>
       </div>
       <div class="check-section" id="io-section" style="display:none">
         <h3>Stage I/O Summary</h3>
@@ -1254,7 +1289,7 @@ function startWorker(wheelUrl) {
   setOverlay("Initialising Pyodide…");
   setPyodideStatus("loading", "Starting…");
   // Cache-bust: worker.js evolves with index.html; keep them aligned.
-  worker = new Worker("worker.js?v=7");
+  worker = new Worker("worker.js?v=8");
 
   worker.onmessage = ({ data }) => {
     switch (data.type) {
@@ -1295,7 +1330,7 @@ function startWorker(wheelUrl) {
           updateWizardData(null, null, null);
         }
         document.getElementById("version-select").disabled = false;
-        renderCheck(data.ok, data.error, data.stats, data.mermaid, data.io_summary);
+        renderCheck(data.ok, data.error, data.stats, data.mermaid, data.io_summary, data.mermaid_links);
         break;
       case "filtered":
         if (data.ok) {
@@ -1366,20 +1401,112 @@ function setStatus(cls, msg) {
 }
 
 // ── Mermaid setup ────────────────────────────────────────────────────────────
-mermaid.initialize({ startOnLoad: false, theme: "dark" });
+mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "loose" });
 let _mermaidCounter = 0;
+let _mermaidLinks = {};
+
+// Called by mermaid `click` directives. Resolves the node id to a repo URL and
+// opens it. URLs come from the benchmark YAML, so only allow http(s).
+window.obModuleClick = function (nid) {
+  const url = _mermaidLinks[nid];
+  if (url && /^https?:\/\//i.test(url)) window.open(url, "_blank", "noopener");
+};
 
 async function renderMermaid(source) {
-  const container = document.getElementById("mermaid-container");
-  container.innerHTML = "";
+  const viewport = document.getElementById("mermaid-viewport");
+  viewport.innerHTML = "";
   try {
     const id = "mermaid-" + (++_mermaidCounter);
-    const { svg } = await mermaid.render(id, source);
-    container.innerHTML = svg;
+    const { svg, bindFunctions } = await mermaid.render(id, source);
+    viewport.innerHTML = svg;
+    if (bindFunctions) bindFunctions(viewport);
+    resetMermaidView();
   } catch (e) {
-    container.textContent = "Diagram error: " + e.message;
+    viewport.textContent = "Diagram error: " + e.message;
   }
 }
+
+// ── Mermaid pan/zoom ──────────────────────────────────────────────────────────
+const _mmView = { scale: 1, x: 0, y: 0 };
+
+function _applyMermaidTransform() {
+  const vp = document.getElementById("mermaid-viewport");
+  vp.style.transform =
+    `translate(${_mmView.x}px, ${_mmView.y}px) scale(${_mmView.scale})`;
+}
+
+function resetMermaidView() {
+  _mmView.scale = 1; _mmView.x = 0; _mmView.y = 0;
+  _applyMermaidTransform();
+}
+
+function _zoomMermaid(factor, cx, cy) {
+  const next = Math.min(8, Math.max(0.2, _mmView.scale * factor));
+  const ratio = next / _mmView.scale;
+  // keep the point under (cx, cy) fixed while zooming
+  _mmView.x = cx - (cx - _mmView.x) * ratio;
+  _mmView.y = cy - (cy - _mmView.y) * ratio;
+  _mmView.scale = next;
+  _applyMermaidTransform();
+}
+
+(function initMermaidPanZoom() {
+  const container = document.getElementById("mermaid-container");
+  if (!container) return;
+
+  container.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const rect = container.getBoundingClientRect();
+    _zoomMermaid(e.deltaY < 0 ? 1.12 : 1 / 1.12,
+                 e.clientX - rect.left, e.clientY - rect.top);
+  }, { passive: false });
+
+  // Pan with a movement threshold so plain clicks still reach node links.
+  let down = false, moved = false, startX = 0, startY = 0, lastX = 0, lastY = 0;
+  const DRAG_THRESHOLD = 4;
+
+  container.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("#mermaid-controls")) return;
+    if (e.button !== 0) return;
+    down = true; moved = false;
+    startX = lastX = e.clientX; startY = lastY = e.clientY;
+  });
+  window.addEventListener("pointermove", (e) => {
+    if (!down) return;
+    if (!moved &&
+        Math.hypot(e.clientX - startX, e.clientY - startY) > DRAG_THRESHOLD) {
+      moved = true;
+      container.classList.add("panning");
+    }
+    if (!moved) return;
+    _mmView.x += e.clientX - lastX;
+    _mmView.y += e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    _applyMermaidTransform();
+  });
+  window.addEventListener("pointerup", () => {
+    down = false;
+    container.classList.remove("panning");
+  });
+  // Suppress the click that follows a drag so it doesn't open a repo link.
+  container.addEventListener("click", (e) => {
+    if (moved) { e.stopPropagation(); e.preventDefault(); moved = false; }
+  }, true);
+
+  document.getElementById("mermaid-controls").addEventListener("click", (e) => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    const rect = container.getBoundingClientRect();
+    const cx = rect.width / 2, cy = rect.height / 2;
+    if (btn.dataset.zoom === "in")   _zoomMermaid(1.25, cx, cy);
+    else if (btn.dataset.zoom === "out") _zoomMermaid(1 / 1.25, cx, cy);
+    else if (btn.dataset.zoom === "fullscreen") {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else container.requestFullscreen();
+    }
+    else resetMermaidView();
+  });
+})();
 
 function renderStats(statsJson) {
   if (!statsJson) return;
@@ -1400,7 +1527,7 @@ function renderStats(statsJson) {
   document.getElementById("stats-section").style.display = "";
 }
 
-function renderCheck(ok, errMsg, statsJson, mermaidSrc, ioSummaryJson) {
+function renderCheck(ok, errMsg, statsJson, mermaidSrc, ioSummaryJson, mermaidLinks) {
   const badge = document.getElementById("check-badge");
   const icon  = document.getElementById("check-icon");
   const msg   = document.getElementById("check-msg");
@@ -1416,6 +1543,8 @@ function renderCheck(ok, errMsg, statsJson, mermaidSrc, ioSummaryJson) {
   if (ok && statsJson) renderStats(statsJson);
   if (ok && mermaidSrc) {
     document.getElementById("mermaid-section").style.display = "";
+    try { _mermaidLinks = mermaidLinks ? JSON.parse(mermaidLinks) : {}; }
+    catch { _mermaidLinks = {}; }
     renderMermaid(mermaidSrc);
   }
   if (ok && ioSummaryJson) renderIoSummary(ioSummaryJson);
