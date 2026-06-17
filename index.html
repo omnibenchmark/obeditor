@@ -171,10 +171,8 @@
     border-bottom: 2px solid var(--accent);
     background: rgba(0,120,212,.08);
   }
-  #tab-copy {
-    margin-left: auto;
+  #tab-copy, #tab-download {
     align-self: center;
-    margin-right: 10px;
     font-size: 11px;
     padding: 2px 8px;
     border-radius: 3px;
@@ -184,7 +182,9 @@
     cursor: pointer;
     transition: all .15s;
   }
-  #tab-copy:hover { border-color: var(--accent); color: var(--text); }
+  #tab-copy { margin-left: auto; margin-right: 8px; }
+  #tab-download { margin-right: 10px; }
+  #tab-copy:hover, #tab-download:hover { border-color: var(--accent); color: var(--text); }
 
   /* ── Editors container ── */
   #editors {
@@ -743,6 +743,7 @@
       Filter
     </button>
     <button id="tab-copy" title="Copy to clipboard" style="display:none">Copy</button>
+    <button id="tab-download" title="Download as a file" style="display:none">Download</button>
   </div>
 </div>
 
@@ -987,6 +988,7 @@ require(["vs/editor/editor.main"], () => {
       document.getElementById("filter-pane").classList.toggle("hidden", !isFilter);
       document.getElementById("snake-editor").style.display = isEditor ? "" : "none";
       document.getElementById("tab-copy").style.display = isEditor ? "" : "none";
+      document.getElementById("tab-download").style.display = isEditor ? "" : "none";
       if (isEditor) {
         rightEditor.setModel(activeTab === "snakefile" ? snakeModel : runnerModel);
         rightEditor.layout();
@@ -1018,6 +1020,22 @@ require(["vs/editor/editor.main"], () => {
       btn.textContent = "Copied!";
       setTimeout(() => { btn.textContent = "Copy"; }, 1500);
     });
+  });
+
+  // Download button — streams the active editor's content to a file so large
+  // Snakefiles (thousands of rules) don't have to go through the clipboard.
+  document.getElementById("tab-download").addEventListener("click", () => {
+    const text = rightEditor.getValue();
+    const filename = activeTab === "snakefile" ? "Snakefile" : "run.sh";
+    const blob = new Blob([text], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   });
 
   // Load-from-URL button + source pill clear
