@@ -1,0 +1,893 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>obeditor — Results tab preview</title></head><body>
+<style>
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #1e1e1e;
+    --surface: #252526;
+    --border: #3e3e42;
+    --accent: #0078d4;
+    --accent-dim: #004f8f;
+    --text: #cccccc;
+    --text-dim: #858585;
+    --error: #f44747;
+    --ok: #4ec9b0;
+    --header-h: 42px;
+    --status-h: 26px;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 13px;
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  #header {
+    height: var(--header-h);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 16px;
+    user-select: none;
+  }
+  #header .logo {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: .5px;
+    color: #fff;
+  }
+  #header .logo span { color: var(--accent); }
+  #header .sep { flex: 1; }
+  #header .tag {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    background: var(--accent-dim);
+    color: #fff;
+  }
+  #version-select {
+    font-family: inherit;
+    font-size: 11px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 3px 6px;
+    cursor: pointer;
+  }
+  #version-select:hover { border-color: var(--accent); }
+  #version-select:disabled { opacity: .5; cursor: wait; }
+  #version-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: .8px;
+  }
+  #pyodide-status {
+    font-size: 12px;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #pyodide-status .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    transition: background .3s;
+  }
+  #pyodide-status.ready .dot  { background: var(--ok); }
+  #pyodide-status.error .dot  { background: var(--error); }
+  #pyodide-status.loading .dot {
+    animation: pulse 1s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: .3; }
+  }
+
+  /* ── Pane labels + tabs ── */
+  #pane-bar {
+    height: 28px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+  }
+  .pane-label {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: .8px;
+    border-right: 1px solid var(--border);
+  }
+  .pane-label .badge {
+    margin-left: auto;
+    font-size: 10px;
+    background: var(--border);
+    padding: 1px 6px;
+    border-radius: 2px;
+  }
+  #repo-tag {
+    display: none;
+    align-items: center;
+    gap: 4px;
+    margin-left: 12px;
+  }
+  #repo-tag.show { display: inline-flex; }
+  #repo-tag a {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    padding: 2px 8px;
+    border-radius: 3px;
+    border: 1px solid var(--badge-border, var(--border));
+    background: var(--badge-bg, var(--bg));
+    color: var(--badge-fg, var(--text));
+    text-decoration: none;
+    transition: filter .15s;
+  }
+  #repo-tag a:hover { filter: brightness(1.25); }
+  #repo-tag .sep { color: var(--text-dim); font-size: 11px; }
+  #right-tabs {
+    flex: 1;
+    display: flex;
+    align-items: stretch;
+  }
+  .tab-btn {
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    font-size: 11px;
+    font-family: inherit;
+    letter-spacing: .5px;
+    color: var(--text-dim);
+    background: none;
+    border: none;
+    border-right: 1px solid var(--border);
+    cursor: pointer;
+    transition: color .15s, background .15s;
+    white-space: nowrap;
+  }
+  .tab-btn:hover { color: var(--text); background: rgba(255,255,255,.04); }
+  .tab-btn.active {
+    color: #fff;
+    border-bottom: 2px solid var(--accent);
+    background: rgba(0,120,212,.08);
+  }
+  #tab-copy, #tab-download {
+    align-self: center;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all .15s;
+  }
+  #tab-copy { margin-left: auto; margin-right: 8px; }
+  #tab-download { margin-right: 10px; }
+  #tab-copy:hover, #tab-download:hover { border-color: var(--accent); color: var(--text); }
+
+  /* ── Editors container ── */
+  #editors {
+    display: flex;
+    height: calc(100vh - var(--header-h) - 28px - var(--status-h));
+  }
+  .editor-pane {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+  #divider {
+    width: 4px;
+    background: var(--border);
+    cursor: col-resize;
+    flex-shrink: 0;
+    transition: background .15s;
+  }
+  #divider:hover, #divider.dragging { background: var(--accent); }
+
+  /* overlay shown while pyodide loads */
+  #loading-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(30,30,30,.85);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    z-index: 10;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  #loading-overlay .spinner {
+    width: 32px; height: 32px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loading-overlay.hidden { display: none; }
+
+  /* ── Status bar ── */
+  #status-bar {
+    height: var(--status-h);
+    background: var(--accent);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    font-size: 12px;
+    color: #fff;
+    gap: 8px;
+  }
+  #status-bar.error  { background: var(--error); }
+  #status-bar.ok     { background: #16825d; }
+  #status-bar.idle   { background: var(--surface); color: var(--text-dim); border-top: 1px solid var(--border); }
+  #status-msg { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ── Check pane ── */
+  #check-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 24px;
+    overflow-y: auto;
+    height: 100%;
+  }
+  #check-pane.hidden { display: none; }
+  .check-badge {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 20px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,.03);
+  }
+  .check-badge.ok    { background: rgba(78,201,176,.12); border-color: var(--ok);    color: var(--ok); }
+  .check-badge.error { background: rgba(244,71,71,.10);  border-color: var(--error); color: var(--error); }
+  .check-badge .check-icon { font-size: 20px; line-height: 1; }
+  .check-section h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .8px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  .stats-grid { display: flex; gap: 10px; flex-wrap: wrap; }
+  .stat-chip {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 10px 16px;
+    min-width: 80px;
+    text-align: center;
+  }
+  .stat-chip .val { font-size: 24px; font-weight: 700; color: var(--text); line-height: 1.2; }
+  .stat-chip .lbl { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+  #mermaid-container {
+    position: relative;
+    background: #2a2a2a;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    min-height: 80px;
+    height: 420px;
+    overflow: hidden;
+    cursor: grab;
+  }
+  #mermaid-container.panning { cursor: grabbing; }
+  #mermaid-container:fullscreen { height: 100%; width: 100%; background: #2a2a2a; }
+  #mermaid-viewport {
+    width: 100%;
+    height: 100%;
+    transform-origin: 0 0;
+  }
+  #mermaid-viewport svg { display: block; max-width: none; height: auto; }
+  #mermaid-controls {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    gap: 4px;
+    z-index: 2;
+  }
+  #mermaid-controls button {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 16px;
+    line-height: 1;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  #mermaid-controls button:hover { background: var(--border); }
+  .io-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .io-table th, .io-table td { padding: 6px 10px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+  .io-table th { background: var(--surface); color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: .6px; font-size: 10px; }
+  .io-table td:first-child { font-weight: 600; color: var(--text); white-space: nowrap; }
+  .io-table td:not(:first-child) { color: var(--text-dim); font-family: monospace; }
+  .io-table .none { color: var(--border); font-style: italic; font-family: inherit; }
+
+  /* ── Results tab (obviewer) ── */
+  #results-pane {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+  }
+  #results-pane.hidden { display: none; }
+  #results-pane .res-head {
+    display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap;
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+  }
+  #results-pane .res-title { font-size: 13px; font-weight: 600; color: var(--text); }
+  #results-pane .res-endpoint {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px;
+    color: var(--text-dim); background: var(--bg); border: 1px solid var(--border);
+    border-radius: 3px; padding: 3px 7px;
+  }
+  #results-pane .res-badge {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600;
+    padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-dim);
+  }
+  #results-pane .res-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+  #results-pane .res-reload { margin-left: auto; }
+  #results-pane .res-filters {
+    display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 20px; border-bottom: 1px solid var(--border);
+  }
+  #results-pane .res-chip {
+    font-family: inherit; font-size: 11px; color: var(--text-dim); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 999px; padding: 4px 11px; cursor: pointer;
+  }
+  #results-pane .res-chip:hover { border-color: var(--accent); color: #fff; }
+  #results-pane .res-chip.on { background: var(--accent-dim); border-color: var(--accent); color: #fff; }
+  #results-pane .res-chip .c { opacity: .7; font-variant-numeric: tabular-nums; }
+  #results-pane .res-scroll { flex: 1; overflow: auto; }
+  #results-pane .res-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  #results-pane .res-table th {
+    position: sticky; top: 0; background: var(--surface); color: var(--text-dim);
+    font-weight: 600; text-transform: uppercase; letter-spacing: .6px; font-size: 10px;
+    text-align: left; padding: 8px 20px; border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  #results-pane .res-table td {
+    padding: 6px 20px; border-bottom: 1px solid var(--border); vertical-align: middle;
+  }
+  #results-pane .res-table tr { cursor: pointer; }
+  #results-pane .res-table tbody tr:hover { background: rgba(255,255,255,.03); }
+  #results-pane .res-table tr.sel { background: rgba(0,120,212,.14); }
+  #results-pane .res-key {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; color: var(--text);
+    max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    direction: rtl; text-align: left;
+  }
+  #results-pane .res-key bdi { direction: ltr; }
+  #results-pane .res-type {
+    font-family: ui-monospace, monospace; font-size: 10px; font-weight: 600;
+    padding: 1px 6px; border-radius: 4px; border: 1px solid currentColor; white-space: nowrap;
+  }
+  #results-pane td.num {
+    text-align: right; font-family: ui-monospace, monospace; color: var(--text-dim);
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  #results-pane .res-ds { font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-dim); }
+  #results-pane .res-msg { padding: 28px 22px; color: var(--text-dim); font-size: 12.5px; line-height: 1.7; }
+  #results-pane .res-msg h4 { color: var(--text); font-size: 13px; margin: 0 0 8px; }
+  #results-pane .res-msg code {
+    font-family: ui-monospace, monospace; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px;
+  }
+  #results-pane .res-msg.err h4 { color: var(--error); }
+  #results-pane .res-prev {
+    border-top: 1px solid var(--border); max-height: 44%; display: flex; flex-direction: column;
+  }
+  #results-pane .res-prev-head {
+    display: flex; align-items: center; gap: 10px; padding: 9px 20px; border-bottom: 1px solid var(--border);
+  }
+  #results-pane .res-prev-head .fn {
+    font-family: ui-monospace, monospace; font-size: 12px; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #results-pane .res-prev-head .meta { font-size: 11px; color: var(--text-dim); margin-left: auto; white-space: nowrap; }
+  #results-pane .res-prev-body { overflow: auto; padding: 0; }
+  #results-pane .res-prev-body pre {
+    margin: 0; padding: 14px 20px; font-family: ui-monospace, monospace; font-size: 11.5px;
+    line-height: 1.6; white-space: pre; color: var(--text);
+  }
+  #results-pane .res-prev-body iframe { width: 100%; border: 0; min-height: 180px; background: #fff; }
+  #results-pane .res-prev-body table { border-collapse: collapse; font-family: ui-monospace, monospace; font-size: 11px; }
+  #results-pane .res-prev-body th, #results-pane .res-prev-body td { border: 1px solid var(--border); padding: 3px 8px; white-space: nowrap; }
+  #results-pane .res-prev-head a, #results-pane .res-head a { color: var(--accent); text-decoration: none; }
+  #results-pane .res-prev-head a:hover { text-decoration: underline; }
+
+  /* ── Header buttons ── */
+  .hdr-btn {
+    font-family: inherit;
+    font-size: 11px;
+    padding: 4px 10px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .hdr-btn:hover { border-color: var(--accent); color: #fff; }
+  #source-pill {
+    font-size: 11px;
+    color: var(--text-dim);
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: none;
+  }
+  #source-pill code {
+    color: var(--text);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 3px;
+  }
+  #source-pill .clear {
+    margin-left: 6px;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  #source-pill .clear:hover { color: var(--error); }
+
+  /* ── Modal ── */
+  #modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.55);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  #modal-backdrop.show { display: flex; }
+  #modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    width: 520px;
+    max-width: 92vw;
+    box-shadow: 0 10px 30px rgba(0,0,0,.5);
+  }
+  #modal h2 {
+    font-size: 14px;
+    color: #fff;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  #modal .body {
+    padding: 16px 18px;
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  #modal .body input {
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 8px 10px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    margin-top: 6px;
+  }
+  #modal .body input:focus { outline: none; border-color: var(--accent); }
+  #modal .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 8px;
+  }
+  #modal .err {
+    font-size: 12px;
+    color: var(--error);
+    margin-top: 8px;
+    min-height: 16px;
+  }
+  #modal .footer {
+    padding: 12px 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+  #modal .footer button {
+    font-family: inherit;
+    font-size: 12px;
+    padding: 6px 14px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  #modal .footer button:hover:not(:disabled) { border-color: var(--accent); color: #fff; }
+  #modal .footer button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #modal .footer button.primary:hover:not(:disabled) { background: #1a8ae0; }
+  #modal .footer button:disabled { opacity: .5; cursor: not-allowed; }
+  #modal kbd {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+  }
+  .trust-banner {
+    background: rgba(244,71,71,.08);
+    border: 1px solid var(--error);
+    border-radius: 4px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+  .trust-banner strong { color: var(--error); }
+  .trust-banner code { font-family: ui-monospace, monospace; color: var(--text); }
+
+  /* ── Filter pane ── */
+  #filter-pane {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+  }
+  #filter-pane.hidden { display: none; }
+  #filter-stepper {
+    display: flex;
+    gap: 6px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    align-items: center;
+    background: var(--surface);
+  }
+  .step-pill {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 11px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .step-pill.active { color: #fff; border-color: var(--accent); background: var(--accent-dim); }
+  .step-pill.done   { color: var(--ok); border-color: var(--ok); }
+  .step-pill .count { opacity: .7; margin-left: 4px; font-size: 10px; }
+  #filter-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 24px;
+  }
+  #filter-body h2 {
+    font-size: 13px;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  #filter-body .stage-hint {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 14px;
+  }
+  .module-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    margin-bottom: 6px;
+    background: var(--surface);
+    cursor: pointer;
+    user-select: none;
+  }
+  .module-row:hover { border-color: var(--accent); }
+  .module-row input { cursor: pointer; }
+  .module-row .mid { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--text); }
+  .module-row .mname { color: var(--text-dim); font-size: 12px; margin-left: 4px; }
+  .module-row .row-spacer { flex: 1; }
+  .module-row .param-mode {
+    font-family: inherit;
+    font-size: 11px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 2px 6px;
+    margin-left: 8px;
+  }
+  .module-row .param-mode:hover:not(:disabled) { border-color: var(--accent); }
+  .module-row .param-mode:disabled { opacity: .5; }
+  .module-row .pcount {
+    font-size: 10px;
+    color: var(--text-dim);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 1px 7px;
+    margin-left: 6px;
+  }
+  .module-row .pcount.warn { color: var(--error); border-color: var(--error); }
+  .combo-list {
+    margin: 4px 0 8px 28px;
+    padding: 8px 12px;
+    border-left: 2px solid var(--border);
+    background: rgba(255,255,255,.02);
+    border-radius: 0 4px 4px 0;
+  }
+  .combo-list-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+  .combo-list-head a { color: var(--accent); cursor: pointer; }
+  .combo-list-head a:hover { text-decoration: underline; }
+  .combo-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 3px 4px;
+    font-size: 11px;
+    cursor: pointer;
+    border-radius: 3px;
+  }
+  .combo-row:hover { background: rgba(255,255,255,.04); }
+  .combo-row .ccli {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+  }
+  .combo-row .chash {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--text-dim);
+    font-size: 10px;
+  }
+  .combo-list-more {
+    font-size: 11px;
+    color: var(--accent);
+    cursor: pointer;
+    margin-top: 4px;
+  }
+  .combo-list-more:hover { text-decoration: underline; }
+  .combo-list-warn {
+    font-size: 11px;
+    color: var(--error);
+    margin-top: 4px;
+  }
+  .selectall {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    display: flex;
+    gap: 12px;
+  }
+  .selectall a { color: var(--accent); cursor: pointer; text-decoration: none; }
+  .selectall a:hover { text-decoration: underline; }
+  #filter-footer {
+    border-top: 1px solid var(--border);
+    padding: 10px 20px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    background: var(--surface);
+  }
+  #filter-footer button {
+    font-family: inherit;
+    font-size: 12px;
+    padding: 6px 14px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  #filter-footer button:hover:not(:disabled) { border-color: var(--accent); color: #fff; }
+  #filter-footer button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #filter-footer button.primary:hover:not(:disabled) { background: #1a8ae0; }
+  #filter-footer button:disabled { opacity: .4; cursor: not-allowed; }
+  #filter-footer .spacer { flex: 1; }
+  #filter-footer .filter-status { font-size: 11px; color: var(--text-dim); }
+  .result-section { margin-bottom: 18px; }
+  .result-section h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .8px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .result-section h3 code {
+    font-size: 11px;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 3px;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .result-section pre,
+  .result-section textarea {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    color: var(--text);
+    max-height: 280px;
+    overflow: auto;
+    white-space: pre;
+    resize: vertical;
+  }
+  .result-section textarea { word-break: break-all; white-space: pre-wrap; }
+  .result-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .result-actions button {
+    font-family: inherit;
+    font-size: 11px;
+    padding: 4px 10px;
+    background: var(--bg);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .result-actions button:hover { border-color: var(--accent); color: var(--text); }
+
+  /* ── YAML error glyph ── */
+  .error-glyph {
+    width: 8px !important;
+    height: 8px !important;
+    border-radius: 50%;
+    background: var(--error);
+    margin-top: 5px;
+    margin-left: 3px;
+  }
+  .error-line-bg { background: rgba(244,71,71,.08); }
+
+body{padding:0;margin:0}
+html,body{height:auto!important;min-height:100%;overflow:visible!important}
+.demo-wrap{max-width:860px;margin:0 auto;padding:22px}
+.demo-label{font:600 12px ui-monospace,monospace;color:var(--text-dim);text-transform:uppercase;letter-spacing:.7px;margin:26px 0 8px}
+.demo-note{font:12px system-ui;color:var(--text-dim);margin:0 0 8px}
+.demo-frame{border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--surface);box-shadow:0 6px 24px rgba(0,0,0,.35)}
+.demo-tabs{display:flex;gap:0;border-bottom:1px solid var(--border);background:var(--bg)}
+.demo-frame .pane-host{height:var(--h,420px)}
+h1.demo-title{font:700 20px system-ui;color:var(--text);margin:0 0 4px}
+p.demo-sub{color:var(--text-dim);font:13px system-ui;margin:0 0 4px}
+/* stage-filter row */
+#results-pane .res-stages{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:10px 20px 4px;}
+#results-pane .res-flabel{font:600 10px ui-monospace,monospace;color:var(--text-dim);text-transform:uppercase;letter-spacing:.6px;margin-right:4px;}
+</style>
+<div class="demo-wrap">
+  <h1 class="demo-title">obeditor — Results tab states</h1>
+  <p class="demo-sub">obeditor's own stylesheet + the exact markup the integration emits, driven by the live 125-object omnibenchmark bucket. State 4 is interactive.</p>
+
+  <div class="demo-label">State 1 · No storage declared (default sample / mid-edit)</div>
+  <div class="demo-frame"><div id="right-tabs" class="demo-tabs">
+    <button class="tab-btn">Check</button><button class="tab-btn">Snakefile</button>
+    <button class="tab-btn">run.sh</button><button class="tab-btn">Filter</button>
+    <button class="tab-btn active">Results</button></div>
+    <div class="pane-host" style="--h:210px"><div id="results-pane" data-state="none"></div></div></div>
+
+  <div class="demo-label">State 2 · Loading</div>
+  <div class="demo-frame"><div class="pane-host" style="--h:118px"><div id="results-pane" data-state="loading"></div></div></div>
+
+  <div class="demo-label">State 3 · Bucket unreachable from browser (CORS / TLS-cert)</div>
+  <div class="demo-frame"><div class="pane-host" style="--h:320px"><div id="results-pane" data-state="error"></div></div></div>
+
+  <div class="demo-label">State 4 · Loaded — <b style="color:var(--text)">click a stage or type to filter; click a row to preview</b></div>
+  <p class="demo-note">This panel is live: it filters and previews the real embedded bucket data.</p>
+  <div class="demo-frame"><div class="pane-host" style="--h:640px"><div id="results-pane" data-state="loaded"></div></div></div>
+</div>
+<script>
+const DATA = {"objects":[{"key":"config/benchmark.yaml","size":3202,"modified":"2026-03-24T12:29:15.809Z","etag":"63fc0d61035c3d867d8651ab2a83d9ce"},{"key":"out/biometrics.tsv","size":0,"modified":"2026-03-24T12:27:33.007Z","etag":"d41d8cd98f00b204e9800998ecf8427e"},{"key":"out/biometrics_report.html","size":60,"modified":"2026-03-24T12:27:32.735Z","etag":"094b2e4d31e37709ba8456aa0aa8aa19"},{"key":"out/data/iris/default/distances/D1/.17e49005/iris.distances.csv","size":410643,"modified":"2026-03-24T12:26:24.605Z","etag":"5fc0dc42de8db0e40318cf2281e58dfd"},{"key":"out/data/iris/default/distances/D1/.17e49005/iris_performance.txt","size":113,"modified":"2026-03-24T12:26:24.904Z","etag":"aad51a3e243c4cbfe44f3251804b3028"},{"key":"out/data/iris/default/distances/D1/.17e49005/methods/kmeans/default/iris.clusters.csv","size":799,"modified":"2026-03-24T12:26:45.811Z","etag":"c9ede21cd9f624d711ea5d0e01307da9"},{"key":"out/data/iris/default/distances/D1/.17e49005/methods/kmeans/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:26:46.124Z","etag":"718fe69c13eebd8d1203b97446c7ddb8"},{"key":"out/data/iris/default/distances/D1/.17e49005/methods/kmeans/default/metrics/accuracy/default/iris.metrics.txt","size":18,"modified":"2026-03-24T12:27:16.048Z","etag":"675edf556cba99cf3e8fcb4f22617526"},{"key":"out/data/iris/default/distances/D1/.17e49005/methods/kmeans/default/metrics/accuracy/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:27:16.353Z","etag":"2879b58aa493b91b24233d6976305a29"},{"key":"out/data/iris/default/distances/D1/.17e49005/methods/kmeans/default/metrics/ari/default/iris.metrics.txt","size":18,"modified":"2026-03-24T12:27:18.455Z","etag":"19270e69581aabd46ca05970afea8304"},{"key":"out/data/iris/default/distances/D1/.17e49005/methods/kmeans/default/metrics/ari/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:27:18.751Z","etag":"fe6a9ebb39f215ecc9e9779a0ab79b75"},{"key":"out/data/iris/default/distances/D1/.17e49005/methods/ward/default/iris.clusters.csv","size":799,"modified":"2026-03-24T12:26:47.455Z","etag":"f82ecd49e1fcc2ab30759c694bc0dde4"},{"key":"out/data/iris/default/distances/D1/.17e49005/methods/ward/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:26:47.776Z","etag":"b73f84166d912f74ebbaede212ed2494"},{"key":"out/data/iris/default/distances/D1/.17e49005/methods/ward/default/metrics/accuracy/default/iris.metrics.txt","size":18,"modified":"2026-03-24T12:27:10.773Z","etag":"c6fd83ee9ffae0357a6145b23a332e6e"},{"key":"out/data/iris/default/distances/D1/.17e49005/methods/ward/default/metrics/accuracy/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:27:11.083Z","etag":"bd424895f13bd393b0925b16fffa1011"},{"key":"out/data/iris/default/distances/D1/.17e49005/methods/ward/default/metrics/ari/default/iris.metrics.txt","size":18,"modified":"2026-03-24T12:27:23.264Z","etag":"e992e69449fbe5c1f09455e5a7db9539"},{"key":"out/data/iris/default/distances/D1/.17e49005/methods/ward/default/metrics/ari/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:27:23.548Z","etag":"c8a3920745847b5d83dd23d4a5e41e01"},{"key":"out/data/iris/default/distances/D1/.35923507/iris.distances.csv","size":431503,"modified":"2026-03-24T12:26:22.951Z","etag":"8d5652ee5833b8f2ad943ed6253adb50"},{"key":"out/data/iris/default/distances/D1/.35923507/iris_performance.txt","size":113,"modified":"2026-03-24T12:26:23.261Z","etag":"30535f51e115cbc79020715a6c1e2c76"},{"key":"out/data/iris/default/distances/D1/.35923507/methods/kmeans/default/iris.clusters.csv","size":799,"modified":"2026-03-24T12:26:34.843Z","etag":"bc2a4c716f9b3ad931e2a8519855f152"},{"key":"out/data/iris/default/distances/D1/.35923507/methods/kmeans/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:26:35.131Z","etag":"cb7662e548c0e3d37916af779004f3ee"},{"key":"out/data/iris/default/distances/D1/.35923507/methods/kmeans/default/metrics/accuracy/default/iris.metrics.txt","size":18,"modified":"2026-03-24T12:27:22.352Z","etag":"752199f0fade71e41799260e76b2b39f"},{"key":"out/data/iris/default/distances/D1/.35923507/methods/kmeans/default/metrics/accuracy/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:27:22.672Z","etag":"4810d4be19954ec2b01c4c8ce5e1a414"},{"key":"out/data/iris/default/distances/D1/.35923507/methods/kmeans/default/metrics/ari/default/iris.metrics.txt","size":17,"modified":"2026-03-24T12:27:20.467Z","etag":"413b92db963ec2f26e2dcd42214b606b"},{"key":"out/data/iris/default/distances/D1/.35923507/methods/kmeans/default/metrics/ari/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:27:20.757Z","etag":"c4104bd481cc555fbc8badc7399989ce"},{"key":"out/data/iris/default/distances/D1/.35923507/methods/ward/default/iris.clusters.csv","size":799,"modified":"2026-03-24T12:26:38.640Z","etag":"9eb65af46fbedbf08b40d36f2bef02c0"},{"key":"out/data/iris/default/distances/D1/.35923507/methods/ward/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:26:38.945Z","etag":"15c350729e82aff635df0e0e4832fdca"},{"key":"out/data/iris/default/distances/D1/.35923507/methods/ward/default/metrics/accuracy/default/iris.metrics.txt","size":20,"modified":"2026-03-24T12:27:25.133Z","etag":"f0dd4c50b4a5bce55a2b2625d238b837"},{"key":"out/data/iris/default/distances/D1/.35923507/methods/ward/default/metrics/accuracy/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:27:25.429Z","etag":"39a1ee6d45ad41c620d46dc33827dc75"},{"key":"out/data/iris/default/distances/D1/.35923507/methods/ward/default/metrics/ari/default/iris.metrics.txt","size":17,"modified":"2026-03-24T12:27:17.540Z","etag":"ffcc0ccb213597b60d6d48ac831d4053"},{"key":"out/data/iris/default/distances/D1/.35923507/methods/ward/default/metrics/ari/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:27:17.848Z","etag":"18b9c13bd72521779e1722b71663a29a"},{"key":"out/data/iris/default/distances/D1/.7303dd4b/iris.distances.csv","size":420383,"modified":"2026-03-24T12:26:23.777Z","etag":"9334ddf5da74d9da3b35a7abd19b5947"},{"key":"out/data/iris/default/distances/D1/.7303dd4b/iris_performance.txt","size":113,"modified":"2026-03-24T12:26:24.096Z","etag":"08205c2ab3aa2b7862d1764f30cab35d"},{"key":"out/data/iris/default/distances/D1/.7303dd4b/methods/kmeans/default/iris.clusters.csv","size":799,"modified":"2026-03-24T12:26:40.239Z","etag":"e51e18490de77c543611e6454c27d46d"},{"key":"out/data/iris/default/distances/D1/.7303dd4b/methods/kmeans/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:26:40.540Z","etag":"f859b8024f13e78a8ac888f753dd568e"},{"key":"out/data/iris/default/distances/D1/.7303dd4b/methods/kmeans/default/metrics/accuracy/default/iris.metrics.txt","size":2,"modified":"2026-03-24T12:27:15.094Z","etag":"897316929176464ebc9ad085f31e7284"},{"key":"out/data/iris/default/distances/D1/.7303dd4b/methods/kmeans/default/metrics/accuracy/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:27:15.417Z","etag":"8196d6b7a0836ede03a860ddda9302df"},{"key":"out/data/iris/default/distances/D1/.7303dd4b/methods/kmeans/default/metrics/ari/default/iris.metrics.txt","size":18,"modified":"2026-03-24T12:27:21.415Z","etag":"f99d6e8e9194ff400df50c943ac790b5"},{"key":"out/data/iris/default/distances/D1/.7303dd4b/methods/kmeans/default/metrics/ari/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:27:21.739Z","etag":"60e2e1a6ee24d337a1c877cb2f8075a7"},{"key":"out/data/iris/default/distances/D1/.7303dd4b/methods/ward/default/iris.clusters.csv","size":799,"modified":"2026-03-24T12:26:41.945Z","etag":"57ca8cfa228e3188ed0064f3a55a8bf4"},{"key":"out/data/iris/default/distances/D1/.7303dd4b/methods/ward/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:26:42.304Z","etag":"7b9d496bde21442d4d326989c8933a78"},{"key":"out/data/iris/default/distances/D1/.7303dd4b/methods/ward/default/metrics/accuracy/default/iris.metrics.txt","size":19,"modified":"2026-03-24T12:27:24.156Z","etag":"e5ef43d85542d602d38a283115399988"},{"key":"out/data/iris/default/distances/D1/.7303dd4b/methods/ward/default/metrics/accuracy/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:27:24.493Z","etag":"f7b3142b3685e9488bd0dbd20b9461d7"},{"key":"out/data/iris/default/distances/D1/.7303dd4b/methods/ward/default/metrics/ari/default/iris.metrics.txt","size":17,"modified":"2026-03-24T12:27:19.529Z","etag":"3576662ed2a0593661edc374df44b80f"},{"key":"out/data/iris/default/distances/D1/.7303dd4b/methods/ward/default/metrics/ari/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:27:19.828Z","etag":"7e1aa76ea3cdc44c4c6d276131725319"},{"key":"out/data/iris/default/distances/D1/.fbc351b8/iris.distances.csv","size":416236,"modified":"2026-03-24T12:26:25.373Z","etag":"c03bc6391a08c1bd4096ec406e08efd4"},{"key":"out/data/iris/default/distances/D1/.fbc351b8/iris_performance.txt","size":113,"modified":"2026-03-24T12:26:25.708Z","etag":"3b4281de24bcd669740c46a3ce2c1ee7"},{"key":"out/data/iris/default/distances/D1/.fbc351b8/methods/kmeans/default/iris.clusters.csv","size":799,"modified":"2026-03-24T12:26:41.079Z","etag":"7c4c8ea56a34aefbc4d8b20ba93dcce6"},{"key":"out/data/iris/default/distances/D1/.fbc351b8/methods/kmeans/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:26:41.384Z","etag":"f17398fce05952f81e782bc601cc456a"},{"key":"out/data/iris/default/distances/D1/.fbc351b8/methods/kmeans/default/metrics/accuracy/default/iris.metrics.txt","size":2,"modified":"2026-03-24T12:27:11.692Z","etag":"897316929176464ebc9ad085f31e7284"},{"key":"out/data/iris/default/distances/D1/.fbc351b8/methods/kmeans/default/metrics/accuracy/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:27:12.020Z","etag":"0845c155fafe88a68589c39083ac1eb3"},{"key":"out/data/iris/default/distances/D1/.fbc351b8/methods/kmeans/default/metrics/ari/default/iris.metrics.txt","size":17,"modified":"2026-03-24T12:27:05.065Z","etag":"8160e21dd30e2beced37637d2f2be6ce"},{"key":"out/data/iris/default/distances/D1/.fbc351b8/methods/kmeans/default/metrics/ari/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:27:05.429Z","etag":"166dc83d0bb207d82fc318382b4c2847"},{"key":"out/data/iris/default/distances/D1/.fbc351b8/methods/ward/default/iris.clusters.csv","size":799,"modified":"2026-03-24T12:26:46.631Z","etag":"0a9846517b3f1b72f0aed04205888aec"},{"key":"out/data/iris/default/distances/D1/.fbc351b8/methods/ward/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:26:46.935Z","etag":"29d4d233d51cd25c2d5e167c65fe397d"},{"key":"out/data/iris/default/distances/D1/.fbc351b8/methods/ward/default/metrics/accuracy/default/iris.metrics.txt","size":19,"modified":"2026-03-24T12:27:14.168Z","etag":"729777adfbdd4d4457159d203e7b352c"},{"key":"out/data/iris/default/distances/D1/.fbc351b8/methods/ward/default/metrics/accuracy/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:27:14.460Z","etag":"4c566b6c588938a855639f33a63f754d"},{"key":"out/data/iris/default/distances/D1/.fbc351b8/methods/ward/default/metrics/ari/default/iris.metrics.txt","size":18,"modified":"2026-03-24T12:27:13.252Z","etag":"475a38b8982745b092926b1c80910e85"},{"key":"out/data/iris/default/distances/D1/.fbc351b8/methods/ward/default/metrics/ari/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:27:13.547Z","etag":"1b16cda7268fc27c172ba197e489c9c2"},{"key":"out/data/iris/default/iris.features.csv","size":12252,"modified":"2026-03-24T12:26:14.965Z","etag":"1ff9a27140f98159e53423eed528ca16"},{"key":"out/data/iris/default/iris.labels.csv","size":799,"modified":"2026-03-24T12:26:15.272Z","etag":"4c7cffbc69ab646325c6dfe340b7b398"},{"key":"out/data/iris/default/iris_performance.txt","size":113,"modified":"2026-03-24T12:26:15.551Z","etag":"6e0cc51deab9da4c8d3c14e06cabf37d"},{"key":"out/data/penguins/default/distances/D1/.17e49005/methods/kmeans/default/metrics/accuracy/default/penguins.metrics.txt","size":18,"modified":"2026-03-24T12:27:02.426Z","etag":"e87a634b526b089cca3c9106ec7de7fc"},{"key":"out/data/penguins/default/distances/D1/.17e49005/methods/kmeans/default/metrics/accuracy/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:27:02.740Z","etag":"a600fef64c593e558f0a3812d54b7e6a"},{"key":"out/data/penguins/default/distances/D1/.17e49005/methods/kmeans/default/metrics/ari/default/penguins.metrics.txt","size":18,"modified":"2026-03-24T12:27:07.320Z","etag":"1dddc7874559caaaf47ea120593dc907"},{"key":"out/data/penguins/default/distances/D1/.17e49005/methods/kmeans/default/metrics/ari/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:27:07.635Z","etag":"1acaca97c03f00620169a0b554d4d878"},{"key":"out/data/penguins/default/distances/D1/.17e49005/methods/kmeans/default/penguins.clusters.csv","size":1897,"modified":"2026-03-24T12:26:28.560Z","etag":"531c70e2b7d49dc3f35f3b9494713012"},{"key":"out/data/penguins/default/distances/D1/.17e49005/methods/kmeans/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:28.908Z","etag":"edc0dbf1722d94c121c11daf7ec20764"},{"key":"out/data/penguins/default/distances/D1/.17e49005/methods/ward/default/metrics/accuracy/default/penguins.metrics.txt","size":19,"modified":"2026-03-24T12:26:49.164Z","etag":"30730ebc1169d1991824b7bed03126a4"},{"key":"out/data/penguins/default/distances/D1/.17e49005/methods/ward/default/metrics/accuracy/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:49.455Z","etag":"9b3bb1de86877f85668c1c2e40f6f228"},{"key":"out/data/penguins/default/distances/D1/.17e49005/methods/ward/default/metrics/ari/default/penguins.metrics.txt","size":18,"modified":"2026-03-24T12:26:54.248Z","etag":"2d078387d00bf829ae9f05c1f6282d57"},{"key":"out/data/penguins/default/distances/D1/.17e49005/methods/ward/default/metrics/ari/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:54.556Z","etag":"661221f56ad6aa823e9bf48a1e9d443f"},{"key":"out/data/penguins/default/distances/D1/.17e49005/methods/ward/default/penguins.clusters.csv","size":1897,"modified":"2026-03-24T12:26:33.343Z","etag":"2a3549ccf13e2d02b9e81cacf2ed79ad"},{"key":"out/data/penguins/default/distances/D1/.17e49005/methods/ward/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:33.644Z","etag":"9a32d36b7f4d5ecd9b9d8d39fba784b8"},{"key":"out/data/penguins/default/distances/D1/.17e49005/penguins.distances.csv","size":2018673,"modified":"2026-03-24T12:26:18.209Z","etag":"5ef38eff7f5d6ecdcf47b38104418cda"},{"key":"out/data/penguins/default/distances/D1/.17e49005/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:18.536Z","etag":"59b240a5278ad5f2916e51d2c056a4ca"},{"key":"out/data/penguins/default/distances/D1/.35923507/methods/kmeans/default/metrics/accuracy/default/penguins.metrics.txt","size":18,"modified":"2026-03-24T12:27:01.472Z","etag":"00f418c3365ee465608ff55b51326a3d"},{"key":"out/data/penguins/default/distances/D1/.35923507/methods/kmeans/default/metrics/accuracy/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:27:01.785Z","etag":"2663570f1fac4033378260bfe22c0e13"},{"key":"out/data/penguins/default/distances/D1/.35923507/methods/kmeans/default/metrics/ari/default/penguins.metrics.txt","size":18,"modified":"2026-03-24T12:27:08.288Z","etag":"743f89a1e40f76a3a46fe77633ae270f"},{"key":"out/data/penguins/default/distances/D1/.35923507/methods/kmeans/default/metrics/ari/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:27:08.592Z","etag":"ada513b91cfac88ea12db915387f2454"},{"key":"out/data/penguins/default/distances/D1/.35923507/methods/kmeans/default/penguins.clusters.csv","size":1897,"modified":"2026-03-24T12:26:27.813Z","etag":"690329d7c532a457ae58a53446f88316"},{"key":"out/data/penguins/default/distances/D1/.35923507/methods/kmeans/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:28.113Z","etag":"5937d2dbdc574c64d90671a9869a8ad3"},{"key":"out/data/penguins/default/distances/D1/.35923507/methods/ward/default/metrics/accuracy/default/penguins.metrics.txt","size":18,"modified":"2026-03-24T12:26:48.272Z","etag":"6cd12a838ff8513df44a224378ba35e0"},{"key":"out/data/penguins/default/distances/D1/.35923507/methods/ward/default/metrics/accuracy/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:48.556Z","etag":"3b290da67843f6f135f81ab326160320"},{"key":"out/data/penguins/default/distances/D1/.35923507/methods/ward/default/metrics/ari/default/penguins.metrics.txt","size":18,"modified":"2026-03-24T12:26:53.152Z","etag":"ae5569e5da93cd3a5ead5cc82bdfd732"},{"key":"out/data/penguins/default/distances/D1/.35923507/methods/ward/default/metrics/ari/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:53.440Z","etag":"cc846abe6166005f9171aa3893086b06"},{"key":"out/data/penguins/default/distances/D1/.35923507/methods/ward/default/penguins.clusters.csv","size":1897,"modified":"2026-03-24T12:26:31.777Z","etag":"8dcaf71fdb9f7ae82257813395d96712"},{"key":"out/data/penguins/default/distances/D1/.35923507/methods/ward/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:32.114Z","etag":"132a0bd54c3259a980486608c342aed4"},{"key":"out/data/penguins/default/distances/D1/.35923507/penguins.distances.csv","size":2118692,"modified":"2026-03-24T12:26:17.151Z","etag":"054e530fe2b1919d0faf1732bbfbeaa3"},{"key":"out/data/penguins/default/distances/D1/.35923507/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:17.497Z","etag":"cff2e9f17f945aea6174570ee28929ad"},{"key":"out/data/penguins/default/distances/D1/.7303dd4b/methods/kmeans/default/metrics/accuracy/default/penguins.metrics.txt","size":18,"modified":"2026-03-24T12:27:00.494Z","etag":"ab2a7f14e4ef86f28fd0113facf75434"},{"key":"out/data/penguins/default/distances/D1/.7303dd4b/methods/kmeans/default/metrics/accuracy/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:27:00.817Z","etag":"a77945f146e154798fa82c98524e4749"},{"key":"out/data/penguins/default/distances/D1/.7303dd4b/methods/kmeans/default/metrics/ari/default/penguins.metrics.txt","size":18,"modified":"2026-03-24T12:27:06.305Z","etag":"faeb403bebfdc2ba5020635e63e2efbe"},{"key":"out/data/penguins/default/distances/D1/.7303dd4b/methods/kmeans/default/metrics/ari/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:27:06.654Z","etag":"d055b1c40a86ac2a4c30e343fc91e505"},{"key":"out/data/penguins/default/distances/D1/.7303dd4b/methods/kmeans/default/penguins.clusters.csv","size":1897,"modified":"2026-03-24T12:26:34.100Z","etag":"45c182b93a5655cb2654086df4f0a30e"},{"key":"out/data/penguins/default/distances/D1/.7303dd4b/methods/kmeans/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:34.392Z","etag":"414f94b3ba3befa18fcfe4b96bf0174f"},{"key":"out/data/penguins/default/distances/D1/.7303dd4b/methods/ward/default/metrics/accuracy/default/penguins.metrics.txt","size":18,"modified":"2026-03-24T12:26:56.108Z","etag":"8db49c1c9de445ba7beca62535b288a9"},{"key":"out/data/penguins/default/distances/D1/.7303dd4b/methods/ward/default/metrics/accuracy/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:56.455Z","etag":"8bb46b018656be7723591a9380fa2a6f"},{"key":"out/data/penguins/default/distances/D1/.7303dd4b/methods/ward/default/metrics/ari/default/penguins.metrics.txt","size":18,"modified":"2026-03-24T12:26:52.299Z","etag":"8d788f6eaff2b33ae22bdc4a6917481b"},{"key":"out/data/penguins/default/distances/D1/.7303dd4b/methods/ward/default/metrics/ari/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:52.556Z","etag":"fb5ebdefd1b04ade13490b44dd0d8404"},{"key":"out/data/penguins/default/distances/D1/.7303dd4b/methods/ward/default/penguins.clusters.csv","size":1897,"modified":"2026-03-24T12:26:39.473Z","etag":"7b23ee1c37c4166812ccde3abeb24a3c"},{"key":"out/data/penguins/default/distances/D1/.7303dd4b/methods/ward/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:39.780Z","etag":"ccf14b177bffff3b1ac8cd5458189bbf"},{"key":"out/data/penguins/default/distances/D1/.7303dd4b/penguins.distances.csv","size":1960853,"modified":"2026-03-24T12:26:20.195Z","etag":"3a84355272cbb2a065b96a8d26a8f4d7"},{"key":"out/data/penguins/default/distances/D1/.7303dd4b/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:20.554Z","etag":"eb8f875e0e628f5452fed2f9d949828d"},{"key":"out/data/penguins/default/distances/D1/.fbc351b8/methods/kmeans/default/metrics/accuracy/default/penguins.metrics.txt","size":18,"modified":"2026-03-24T12:26:59.360Z","etag":"911c2c418ddc5790bb92ab74fac8fe2c"},{"key":"out/data/penguins/default/distances/D1/.fbc351b8/methods/kmeans/default/metrics/accuracy/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:59.660Z","etag":"f1d14dc6ffbb243843de920c9ac065e7"},{"key":"out/data/penguins/default/distances/D1/.fbc351b8/methods/kmeans/default/metrics/ari/default/penguins.metrics.txt","size":18,"modified":"2026-03-24T12:26:55.187Z","etag":"d1e6dffcf31d5430aec8e8a96d9d25ac"},{"key":"out/data/penguins/default/distances/D1/.fbc351b8/methods/kmeans/default/metrics/ari/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:55.468Z","etag":"d9cf633fe83e87d518d336dee84d632e"},{"key":"out/data/penguins/default/distances/D1/.fbc351b8/methods/kmeans/default/penguins.clusters.csv","size":1897,"modified":"2026-03-24T12:26:29.368Z","etag":"45c0dd5ef3c0e2fadd71159d1c575f52"},{"key":"out/data/penguins/default/distances/D1/.fbc351b8/methods/kmeans/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:29.676Z","etag":"0b0512c326cd430545472a5de1cb6a91"},{"key":"out/data/penguins/default/distances/D1/.fbc351b8/methods/ward/default/metrics/accuracy/default/penguins.metrics.txt","size":18,"modified":"2026-03-24T12:27:09.852Z","etag":"6c886ff54d2cc5ecfe6a7f663da82a0b"},{"key":"out/data/penguins/default/distances/D1/.fbc351b8/methods/ward/default/metrics/accuracy/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:27:10.152Z","etag":"c9f2a4400693712d3992a86a4b3d71f3"},{"key":"out/data/penguins/default/distances/D1/.fbc351b8/methods/ward/default/metrics/ari/default/penguins.metrics.txt","size":18,"modified":"2026-03-24T12:26:58.163Z","etag":"c0e0e0abbb85ff861c9cf014daa44247"},{"key":"out/data/penguins/default/distances/D1/.fbc351b8/methods/ward/default/metrics/ari/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:58.479Z","etag":"bd0e7d887df0b8dddb70f7897797edf7"},{"key":"out/data/penguins/default/distances/D1/.fbc351b8/methods/ward/default/penguins.clusters.csv","size":1897,"modified":"2026-03-24T12:26:32.616Z","etag":"57b5abf6d690476ee609f455388df43d"},{"key":"out/data/penguins/default/distances/D1/.fbc351b8/methods/ward/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:32.908Z","etag":"adf9ab032d31dad765e69d85931db950"},{"key":"out/data/penguins/default/distances/D1/.fbc351b8/penguins.distances.csv","size":2053440,"modified":"2026-03-24T12:26:19.099Z","etag":"eedaec3c0df3852bbcd85aeb460264f4"},{"key":"out/data/penguins/default/distances/D1/.fbc351b8/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:19.453Z","etag":"4f8d533a53ff164ef0e6d4f27273e6f5"},{"key":"out/data/penguins/default/penguins.features.csv","size":28003,"modified":"2026-03-24T12:26:12.592Z","etag":"1af7fbe0f4d80b55a106e7f3f24dc1f1"},{"key":"out/data/penguins/default/penguins.labels.csv","size":1963,"modified":"2026-03-24T12:26:12.925Z","etag":"6c651c815ef5ddabcc76dbd10f67ac62"},{"key":"out/data/penguins/default/penguins_performance.txt","size":113,"modified":"2026-03-24T12:26:13.258Z","etag":"d404128e29a4b446a55ebced92166338"},{"key":"out/performances.tsv","size":0,"modified":"2026-03-24T12:27:51.935Z","etag":"d41d8cd98f00b204e9800998ecf8427e"},{"key":"software/Python_3.12.6_Clustering.yaml","size":216,"modified":"2026-03-24T12:29:16.130Z","etag":"43dd1e1b065822c8b8c3d19b1634f9a3"},{"key":"software/R_4.4.1_Clustering.yaml","size":269,"modified":"2026-03-24T12:29:15.965Z","etag":"edf32a1d5f00d136d4ac38a99fd12acc"},{"key":"versions/1.0.csv","size":12244,"modified":"2026-03-24T12:29:53.961Z","etag":"9548b227f1ca4df05416345ec05cdba6"}],"content":{"out/biometrics_report.html":"<html><body>\n<h2>Input Files</h2>\n<ul>\n</ul>\n</body></html>\n","out/data/iris/default/distances/D1/.17e49005/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n1.3753\t0:00:01\t0\t0\t0\t0\t0.00\t0.00\t28.02\t0\n","out/data/iris/default/distances/D1/.17e49005/methods/kmeans/default/iris.clusters.csv":"id,label\n0,2\n1,2\n2,2\n3,2\n4,2\n5,2\n6,2\n7,2\n8,2\n9,2\n10,2\n11,2\n12,2\n13,2\n14,2\n15,2\n16,2\n17,2\n18,2\n19,2\n20,2\n21,2\n22,2\n23,2\n24,2\n25,2\n26,2\n27,2\n28,2\n29,2\n30,2\n31,2\n32,2\n33,2\n34,2\n35,2\n36,2\n37,2\n38,2\n39,2\n40,2\n41,2\n42,2\n43,2\n44,2\n45,2\n46,2\n47,2\n48,2\n49,2\n50,0\n51,0\n52,0\n53,1\n54,0\n55,1\n56,0\n57,1\n58,0\n59,1\n60,1\n61,1\n62,1\n63,1\n64,1\n65,0\n66,1\n67,1\n68,0\n69,1\n70,0\n71,1\n72,0\n73,1\n74,1\n75,0\n76,0\n77,0\n78,1\n79,1\n80,1\n81,1\n82,1\n83,0\n84,1\n85,1\n86,0\n87,1\n88,1\n89,1\n90,1\n91,1\n92,1\n93,1\n94,1\n95,1\n96,1\n97,1\n98,1\n99,1\n100,0\n101,0\n102,0\n103,0\n104,0\n105,0\n106,1\n107,0\n108,0\n109,0\n110,0\n111,0\n112,0\n113,0\n114,0\n115,0\n116,0\n117,0\n118,0\n119,0\n120,0\n121,0\n122,0\n123,0\n124,0\n125,0\n126,0\n127,0\n128,0\n129,0\n130,0\n131,0\n132,0\n133,0\n134,0\n135,0\n136,0\n137,0\n138,0\n139,0\n140,0\n141,0\n142,0\n143,0\n144,0\n145,0\n146,0\n147,0\n148,0\n149,0\n","out/data/iris/default/distances/D1/.17e49005/methods/kmeans/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n1.8061\t0:00:01\t0\t0\t0\t0\t0.00\t0.00\t52.97\t0\n","out/data/iris/default/distances/D1/.17e49005/methods/kmeans/default/metrics/accuracy/default/iris.metrics.txt":"0.233333333333333\n","out/data/iris/default/distances/D1/.17e49005/methods/kmeans/default/metrics/accuracy/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n4.4408\t0:00:04\t0\t0\t0\t0\t0.00\t0.00\t39.79\t0\n","out/data/iris/default/distances/D1/.17e49005/methods/kmeans/default/metrics/ari/default/iris.metrics.txt":"0.731198556770774\n","out/data/iris/default/distances/D1/.17e49005/methods/kmeans/default/metrics/ari/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n3.5638\t0:00:03\t0\t0\t0\t0\t0.00\t0.00\t32.92\t0\n","out/data/iris/default/distances/D1/.17e49005/methods/ward/default/iris.clusters.csv":"id,label\n0,1\n1,1\n2,1\n3,1\n4,1\n5,1\n6,1\n7,1\n8,1\n9,1\n10,1\n11,1\n12,1\n13,1\n14,1\n15,1\n16,1\n17,1\n18,1\n19,1\n20,1\n21,1\n22,1\n23,1\n24,1\n25,1\n26,1\n27,1\n28,1\n29,1\n30,1\n31,1\n32,1\n33,1\n34,1\n35,1\n36,1\n37,1\n38,1\n39,1\n40,1\n41,1\n42,1\n43,1\n44,1\n45,1\n46,1\n47,1\n48,1\n49,1\n50,2\n51,2\n52,2\n53,2\n54,2\n55,2\n56,2\n57,2\n58,2\n59,2\n60,2\n61,2\n62,2\n63,2\n64,2\n65,2\n66,2\n67,2\n68,2\n69,2\n70,2\n71,2\n72,2\n73,2\n74,2\n75,2\n76,2\n77,3\n78,2\n79,2\n80,2\n81,2\n82,2\n83,2\n84,2\n85,2\n86,2\n87,2\n88,2\n89,2\n90,2\n91,2\n92,2\n93,2\n94,2\n95,2\n96,2\n97,2\n98,2\n99,2\n100,3\n101,2\n102,3\n103,3\n104,3\n105,3\n106,2\n107,3\n108,2\n109,3\n110,3\n111,2\n112,3\n113,2\n114,2\n115,3\n116,3\n117,3\n118,3\n119,2\n120,3\n121,2\n122,3\n123,2\n124,3\n125,3\n126,2\n127,2\n128,3\n129,3\n130,3\n131,3\n132,3\n133,2\n134,2\n135,3\n136,3\n137,3\n138,2\n139,3\n140,3\n141,3\n142,2\n143,3\n144,3\n145,3\n146,2\n147,3\n148,3\n149,2\n","out/data/iris/default/distances/D1/.17e49005/methods/ward/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n3.7400\t0:00:03\t0\t0\t0\t0\t0.00\t0.00\t30.52\t0\n","out/data/iris/default/distances/D1/.17e49005/methods/ward/default/metrics/accuracy/default/iris.metrics.txt":"0.113333333333333\n","out/data/iris/default/distances/D1/.17e49005/methods/ward/default/metrics/accuracy/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n6.5566\t0:00:06\t0\t0\t0\t0\t0.00\t0.00\t37.26\t0\n","out/data/iris/default/distances/D1/.17e49005/methods/ward/default/metrics/ari/default/iris.metrics.txt":"0.706005967467676\n","out/data/iris/default/distances/D1/.17e49005/methods/ward/default/metrics/ari/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n3.8071\t0:00:03\t0\t0\t0\t0\t0.00\t0.00\t32.10\t0\n","out/data/iris/default/distances/D1/.35923507/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n1.4068\t0:00:01\t0\t0\t0\t0\t0.00\t0.00\t27.62\t0\n","out/data/iris/default/distances/D1/.35923507/methods/kmeans/default/iris.clusters.csv":"id,label\n0,2\n1,2\n2,2\n3,2\n4,2\n5,2\n6,2\n7,2\n8,2\n9,2\n10,2\n11,2\n12,2\n13,2\n14,2\n15,2\n16,2\n17,2\n18,2\n19,2\n20,2\n21,2\n22,2\n23,2\n24,2\n25,2\n26,2\n27,2\n28,2\n29,2\n30,2\n31,2\n32,2\n33,2\n34,2\n35,2\n36,2\n37,2\n38,2\n39,2\n40,2\n41,2\n42,2\n43,2\n44,2\n45,2\n46,2\n47,2\n48,2\n49,2\n50,0\n51,0\n52,0\n53,1\n54,0\n55,1\n56,0\n57,1\n58,0\n59,1\n60,1\n61,0\n62,1\n63,0\n64,1\n65,0\n66,0\n67,1\n68,1\n69,1\n70,0\n71,0\n72,0\n73,0\n74,0\n75,0\n76,0\n77,0\n78,0\n79,1\n80,1\n81,1\n82,1\n83,0\n84,1\n85,0\n86,0\n87,1\n88,1\n89,1\n90,1\n91,0\n92,1\n93,1\n94,1\n95,1\n96,1\n97,0\n98,1\n99,1\n100,0\n101,0\n102,0\n103,0\n104,0\n105,0\n106,1\n107,0\n108,0\n109,0\n110,0\n111,0\n112,0\n113,0\n114,0\n115,0\n116,0\n117,0\n118,0\n119,1\n120,0\n121,0\n122,0\n123,0\n124,0\n125,0\n126,0\n127,0\n128,0\n129,0\n130,0\n131,0\n132,0\n133,0\n134,0\n135,0\n136,0\n137,0\n138,0\n139,0\n140,0\n141,0\n142,0\n143,0\n144,0\n145,0\n146,0\n147,0\n148,0\n149,0\n","out/data/iris/default/distances/D1/.35923507/methods/kmeans/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n1.6306\t0:00:01\t0\t0\t0\t0\t0.00\t0.00\t57.67\t0\n","out/data/iris/default/distances/D1/.35923507/methods/kmeans/default/metrics/accuracy/default/iris.metrics.txt":"0.173333333333333\n","out/data/iris/default/distances/D1/.35923507/methods/kmeans/default/metrics/accuracy/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n4.4869\t0:00:04\t0\t0\t0\t0\t0.00\t0.00\t38.84\t0\n","out/data/iris/default/distances/D1/.35923507/methods/kmeans/default/metrics/ari/default/iris.metrics.txt":"0.62263783362556\n","out/data/iris/default/distances/D1/.35923507/methods/kmeans/default/metrics/ari/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n3.5926\t0:00:03\t0\t0\t0\t0\t0.00\t0.00\t21.46\t0\n","out/data/iris/default/distances/D1/.35923507/methods/ward/default/iris.clusters.csv":"id,label\n0,1\n1,1\n2,1\n3,1\n4,1\n5,1\n6,1\n7,1\n8,1\n9,1\n10,1\n11,1\n12,1\n13,1\n14,1\n15,1\n16,1\n17,1\n18,1\n19,1\n20,1\n21,1\n22,1\n23,1\n24,1\n25,1\n26,1\n27,1\n28,1\n29,1\n30,1\n31,1\n32,1\n33,1\n34,1\n35,1\n36,1\n37,1\n38,1\n39,1\n40,1\n41,2\n42,1\n43,1\n44,1\n45,1\n46,1\n47,1\n48,1\n49,1\n50,3\n51,3\n52,3\n53,2\n54,3\n55,2\n56,3\n57,2\n58,3\n59,2\n60,2\n61,3\n62,2\n63,3\n64,2\n65,3\n66,2\n67,2\n68,3\n69,2\n70,3\n71,3\n72,3\n73,3\n74,3\n75,3\n76,3\n77,3\n78,3\n79,2\n80,2\n81,2\n82,2\n83,3\n84,2\n85,3\n86,3\n87,3\n88,2\n89,2\n90,2\n91,3\n92,2\n93,2\n94,2\n95,2\n96,2\n97,3\n98,2\n99,2\n100,3\n101,3\n102,3\n103,3\n104,3\n105,3\n106,2\n107,3\n108,3\n109,3\n110,3\n111,3\n112,3\n113,3\n114,3\n115,3\n116,3\n117,3\n118,3\n119,3\n120,3\n121,3\n122,3\n123,3\n124,3\n125,3\n126,3\n127,3\n128,3\n129,3\n130,3\n131,3\n132,3\n133,3\n134,3\n135,3\n136,3\n137,3\n138,3\n139,3\n140,3\n141,3\n142,3\n143,3\n144,3\n145,3\n146,3\n147,3\n148,3\n149,3\n","out/data/iris/default/distances/D1/.35923507/methods/ward/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n3.0821\t0:00:03\t0\t0\t0\t0\t0.00\t0.00\t27.64\t0\n","out/data/iris/default/distances/D1/.35923507/methods/ward/default/metrics/accuracy/default/iris.metrics.txt":"0.00666666666666667\n","out/data/iris/default/distances/D1/.35923507/methods/ward/default/metrics/accuracy/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n4.6821\t0:00:04\t0\t0\t0\t0\t0.00\t0.00\t41.72\t0\n","out/data/iris/default/distances/D1/.35923507/methods/ward/default/metrics/ari/default/iris.metrics.txt":"0.60973554873343\n","out/data/iris/default/distances/D1/.35923507/methods/ward/default/metrics/ari/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n3.5986\t0:00:03\t0\t0\t0\t0\t0.00\t0.00\t34.25\t0\n","out/data/iris/default/distances/D1/.7303dd4b/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n1.3903\t0:00:01\t0\t0\t0\t0\t0.00\t0.00\t28.10\t0\n","out/data/iris/default/distances/D1/.7303dd4b/methods/kmeans/default/iris.clusters.csv":"id,label\n0,2\n1,2\n2,2\n3,2\n4,2\n5,1\n6,2\n7,2\n8,2\n9,2\n10,1\n11,2\n12,2\n13,2\n14,1\n15,1\n16,1\n17,2\n18,1\n19,1\n20,2\n21,1\n22,2\n23,2\n24,2\n25,2\n26,2\n27,2\n28,2\n29,2\n30,2\n31,2\n32,1\n33,1\n34,2\n35,2\n36,2\n37,2\n38,2\n39,2\n40,2\n41,2\n42,2\n43,2\n44,1\n45,2\n46,1\n47,2\n48,1\n49,2\n50,0\n51,0\n52,0\n53,0\n54,0\n55,0\n56,0\n57,0\n58,0\n59,0\n60,0\n61,0\n62,0\n63,0\n64,0\n65,0\n66,0\n67,0\n68,0\n69,0\n70,0\n71,0\n72,0\n73,0\n74,0\n75,0\n76,0\n77,0\n78,0\n79,0\n80,0\n81,0\n82,0\n83,0\n84,0\n85,0\n86,0\n87,0\n88,0\n89,0\n90,0\n91,0\n92,0\n93,0\n94,0\n95,0\n96,0\n97,0\n98,0\n99,0\n100,0\n101,0\n102,0\n103,0\n104,0\n105,0\n106,0\n107,0\n108,0\n109,0\n110,0\n111,0\n112,0\n113,0\n114,0\n115,0\n116,0\n117,0\n118,0\n119,0\n120,0\n121,0\n122,0\n123,0\n124,0\n125,0\n126,0\n127,0\n128,0\n129,0\n130,0\n131,0\n132,0\n133,0\n134,0\n135,0\n136,0\n137,0\n138,0\n139,0\n140,0\n141,0\n142,0\n143,0\n144,0\n145,0\n146,0\n147,0\n148,0\n149,0\n","out/data/iris/default/distances/D1/.7303dd4b/methods/kmeans/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n1.5290\t0:00:01\t0\t0\t0\t0\t0.00\t0.00\t27.09\t0\n","out/data/iris/default/distances/D1/.7303dd4b/methods/kmeans/default/metrics/accuracy/default/iris.metrics.txt":"0\n","out/data/iris/default/distances/D1/.7303dd4b/methods/kmeans/default/metrics/accuracy/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n5.0022\t0:00:05\t0\t0\t0\t0\t0.00\t0.00\t43.34\t0\n","out/data/iris/default/distances/D1/.7303dd4b/methods/kmeans/default/metrics/ari/default/iris.metrics.txt":"0.469945785583954\n","out/data/iris/default/distances/D1/.7303dd4b/methods/kmeans/default/metrics/ari/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n3.5336\t0:00:03\t0\t0\t0\t0\t0.00\t0.00\t30.71\t0\n","out/data/iris/default/distances/D1/.7303dd4b/methods/ward/default/iris.clusters.csv":"id,label\n0,1\n1,1\n2,1\n3,1\n4,1\n5,1\n6,1\n7,1\n8,1\n9,1\n10,1\n11,1\n12,1\n13,1\n14,1\n15,1\n16,1\n17,1\n18,1\n19,1\n20,1\n21,1\n22,1\n23,1\n24,1\n25,1\n26,1\n27,1\n28,1\n29,1\n30,1\n31,1\n32,1\n33,1\n34,1\n35,1\n36,1\n37,1\n38,1\n39,1\n40,1\n41,2\n42,1\n43,1\n44,1\n45,1\n46,1\n47,1\n48,1\n49,1\n50,3\n51,3\n52,3\n53,2\n54,3\n55,2\n56,3\n57,2\n58,3\n59,2\n60,2\n61,2\n62,2\n63,2\n64,2\n65,3\n66,2\n67,2\n68,2\n69,2\n70,3\n71,2\n72,2\n73,2\n74,3\n75,3\n76,3\n77,3\n78,2\n79,2\n80,2\n81,2\n82,2\n83,2\n84,2\n85,3\n86,3\n87,2\n88,2\n89,2\n90,2\n91,2\n92,2\n93,2\n94,2\n95,2\n96,2\n97,2\n98,2\n99,2\n100,3\n101,2\n102,3\n103,3\n104,3\n105,3\n106,2\n107,3\n108,2\n109,3\n110,3\n111,2\n112,3\n113,2\n114,2\n115,3\n116,3\n117,3\n118,3\n119,2\n120,3\n121,2\n122,3\n123,2\n124,3\n125,3\n126,2\n127,3\n128,3\n129,3\n130,3\n131,3\n132,3\n133,3\n134,2\n135,3\n136,3\n137,3\n138,3\n139,3\n140,3\n141,3\n142,2\n143,3\n144,3\n145,3\n146,2\n147,3\n148,3\n149,3\n","out/data/iris/default/distances/D1/.7303dd4b/methods/ward/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n2.7253\t0:00:02\t0\t0\t0\t0\t0.00\t0.00\t22.51\t0\n","out/data/iris/default/distances/D1/.7303dd4b/methods/ward/default/metrics/accuracy/default/iris.metrics.txt":"0.0866666666666667\n","out/data/iris/default/distances/D1/.7303dd4b/methods/ward/default/metrics/accuracy/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n4.7766\t0:00:04\t0\t0\t0\t0\t0.00\t0.00\t50.80\t0\n","out/data/iris/default/distances/D1/.7303dd4b/methods/ward/default/metrics/ari/default/iris.metrics.txt":"0.58059916930934\n","out/data/iris/default/distances/D1/.7303dd4b/methods/ward/default/metrics/ari/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n3.7411\t0:00:03\t0\t0\t0\t0\t0.00\t0.00\t24.68\t0\n","out/data/iris/default/distances/D1/.fbc351b8/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n1.3616\t0:00:01\t0\t0\t0\t0\t0.00\t0.00\t28.15\t0\n","out/data/iris/default/distances/D1/.fbc351b8/methods/kmeans/default/iris.clusters.csv":"id,label\n0,1\n1,1\n2,1\n3,1\n4,1\n5,2\n6,1\n7,1\n8,1\n9,1\n10,2\n11,1\n12,1\n13,1\n14,2\n15,2\n16,2\n17,1\n18,2\n19,2\n20,1\n21,2\n22,2\n23,1\n24,1\n25,1\n26,1\n27,1\n28,1\n29,1\n30,1\n31,1\n32,2\n33,2\n34,1\n35,1\n36,1\n37,2\n38,1\n39,1\n40,1\n41,1\n42,1\n43,1\n44,2\n45,1\n46,2\n47,1\n48,2\n49,1\n50,0\n51,0\n52,0\n53,0\n54,0\n55,0\n56,0\n57,0\n58,0\n59,0\n60,0\n61,0\n62,0\n63,0\n64,0\n65,0\n66,0\n67,0\n68,0\n69,0\n70,0\n71,0\n72,0\n73,0\n74,0\n75,0\n76,0\n77,0\n78,0\n79,0\n80,0\n81,0\n82,0\n83,0\n84,0\n85,0\n86,0\n87,0\n88,0\n89,0\n90,0\n91,0\n92,0\n93,0\n94,0\n95,0\n96,0\n97,0\n98,0\n99,0\n100,0\n101,0\n102,0\n103,0\n104,0\n105,0\n106,0\n107,0\n108,0\n109,0\n110,0\n111,0\n112,0\n113,0\n114,0\n115,0\n116,0\n117,0\n118,0\n119,0\n120,0\n121,0\n122,0\n123,0\n124,0\n125,0\n126,0\n127,0\n128,0\n129,0\n130,0\n131,0\n132,0\n133,0\n134,0\n135,0\n136,0\n137,0\n138,0\n139,0\n140,0\n141,0\n142,0\n143,0\n144,0\n145,0\n146,0\n147,0\n148,0\n149,0\n","out/data/iris/default/distances/D1/.fbc351b8/methods/kmeans/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n1.4968\t0:00:01\t0\t0\t0\t0\t0.00\t0.00\t26.19\t0\n","out/data/iris/default/distances/D1/.fbc351b8/methods/kmeans/default/metrics/accuracy/default/iris.metrics.txt":"0\n","out/data/iris/default/distances/D1/.fbc351b8/methods/kmeans/default/metrics/accuracy/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n6.1707\t0:00:06\t0\t0\t0\t0\t0.00\t0.00\t39.77\t0\n","out/data/iris/default/distances/D1/.fbc351b8/methods/kmeans/default/metrics/ari/default/iris.metrics.txt":"0.46067785455742\n","out/data/iris/default/distances/D1/.fbc351b8/methods/kmeans/default/metrics/ari/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n4.9169\t0:00:04\t0\t0\t0\t0\t0.00\t0.00\t26.37\t0\n","out/data/iris/default/distances/D1/.fbc351b8/methods/ward/default/iris.clusters.csv":"id,label\n0,1\n1,1\n2,1\n3,1\n4,1\n5,1\n6,1\n7,1\n8,1\n9,1\n10,1\n11,1\n12,1\n13,1\n14,1\n15,1\n16,1\n17,1\n18,1\n19,1\n20,1\n21,1\n22,1\n23,1\n24,1\n25,1\n26,1\n27,1\n28,1\n29,1\n30,1\n31,1\n32,1\n33,1\n34,1\n35,1\n36,1\n37,1\n38,1\n39,1\n40,1\n41,2\n42,1\n43,1\n44,1\n45,1\n46,1\n47,1\n48,1\n49,1\n50,3\n51,3\n52,3\n53,2\n54,3\n55,2\n56,3\n57,2\n58,3\n59,2\n60,2\n61,3\n62,2\n63,3\n64,2\n65,3\n66,2\n67,2\n68,2\n69,2\n70,3\n71,3\n72,3\n73,3\n74,3\n75,3\n76,3\n77,3\n78,3\n79,2\n80,2\n81,2\n82,2\n83,3\n84,2\n85,3\n86,3\n87,2\n88,2\n89,2\n90,2\n91,3\n92,2\n93,2\n94,2\n95,2\n96,2\n97,3\n98,2\n99,2\n100,3\n101,3\n102,3\n103,3\n104,3\n105,3\n106,2\n107,3\n108,3\n109,3\n110,3\n111,3\n112,3\n113,3\n114,3\n115,3\n116,3\n117,3\n118,3\n119,2\n120,3\n121,3\n122,3\n123,3\n124,3\n125,3\n126,3\n127,3\n128,3\n129,3\n130,3\n131,3\n132,3\n133,3\n134,3\n135,3\n136,3\n137,3\n138,3\n139,3\n140,3\n141,3\n142,3\n143,3\n144,3\n145,3\n146,3\n147,3\n148,3\n149,3\n","out/data/iris/default/distances/D1/.fbc351b8/methods/ward/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n3.8965\t0:00:03\t0\t0\t0\t0\t0.00\t0.00\t28.47\t0\n","out/data/iris/default/distances/D1/.fbc351b8/methods/ward/default/metrics/accuracy/default/iris.metrics.txt":"0.0133333333333333\n","out/data/iris/default/distances/D1/.fbc351b8/methods/ward/default/metrics/accuracy/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n5.2975\t0:00:05\t0\t0\t0\t0\t0.00\t0.00\t37.85\t0\n","out/data/iris/default/distances/D1/.fbc351b8/methods/ward/default/metrics/ari/default/iris.metrics.txt":"0.615322993214545\n","out/data/iris/default/distances/D1/.fbc351b8/methods/ward/default/metrics/ari/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n4.0302\t0:00:04\t0\t0\t0\t0\t0.00\t0.00\t26.82\t0\n","out/data/iris/default/iris.labels.csv":"id,label\n0,0\n1,0\n2,0\n3,0\n4,0\n5,0\n6,0\n7,0\n8,0\n9,0\n10,0\n11,0\n12,0\n13,0\n14,0\n15,0\n16,0\n17,0\n18,0\n19,0\n20,0\n21,0\n22,0\n23,0\n24,0\n25,0\n26,0\n27,0\n28,0\n29,0\n30,0\n31,0\n32,0\n33,0\n34,0\n35,0\n36,0\n37,0\n38,0\n39,0\n40,0\n41,0\n42,0\n43,0\n44,0\n45,0\n46,0\n47,0\n48,0\n49,0\n50,1\n51,1\n52,1\n53,1\n54,1\n55,1\n56,1\n57,1\n58,1\n59,1\n60,1\n61,1\n62,1\n63,1\n64,1\n65,1\n66,1\n67,1\n68,1\n69,1\n70,1\n71,1\n72,1\n73,1\n74,1\n75,1\n76,1\n77,1\n78,1\n79,1\n80,1\n81,1\n82,1\n83,1\n84,1\n85,1\n86,1\n87,1\n88,1\n89,1\n90,1\n91,1\n92,1\n93,1\n94,1\n95,1\n96,1\n97,1\n98,1\n99,1\n100,2\n101,2\n102,2\n103,2\n104,2\n105,2\n106,2\n107,2\n108,2\n109,2\n110,2\n111,2\n112,2\n113,2\n114,2\n115,2\n116,2\n117,2\n118,2\n119,2\n120,2\n121,2\n122,2\n123,2\n124,2\n125,2\n126,2\n127,2\n128,2\n129,2\n130,2\n131,2\n132,2\n133,2\n134,2\n135,2\n136,2\n137,2\n138,2\n139,2\n140,2\n141,2\n142,2\n143,2\n144,2\n145,2\n146,2\n147,2\n148,2\n149,2\n","out/data/iris/default/iris_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n1.7474\t0:00:01\t0\t0\t0\t0\t0.00\t0.00\t43.26\t0\n","out/data/penguins/default/distances/D1/.17e49005/methods/kmeans/default/metrics/accuracy/default/penguins.metrics.txt":"0.288288288288288\n","out/data/penguins/default/distances/D1/.17e49005/methods/kmeans/default/metrics/accuracy/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n6.0415\t0:00:06\t0\t0\t0\t0\t0.00\t0.00\t40.87\t0\n","out/data/penguins/default/distances/D1/.17e49005/methods/kmeans/default/metrics/ari/default/penguins.metrics.txt":"0.518234406787595\n","out/data/penguins/default/distances/D1/.17e49005/methods/kmeans/default/metrics/ari/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n4.9719\t0:00:04\t0\t0\t0\t0\t0.00\t0.00\t23.68\t0\n","out/data/penguins/default/distances/D1/.17e49005/methods/kmeans/default/penguins.clusters.csv":"id,label\n0,0\n1,0\n2,0\n3,0\n4,2\n5,0\n6,2\n7,0\n8,2\n9,2\n10,0\n11,0\n12,2\n13,0\n14,2\n15,0\n16,0\n17,0\n18,0\n19,0\n20,0\n21,0\n22,0\n23,0\n24,2\n25,0\n26,0\n27,0\n28,2\n29,0\n30,2\n31,2\n32,0\n33,0\n34,2\n35,0\n36,2\n37,0\n38,2\n39,0\n40,2\n41,0\n42,0\n43,2\n44,0\n45,2\n46,0\n47,2\n48,0\n49,2\n50,0\n51,2\n52,0\n53,2\n54,0\n55,2\n56,0\n57,2\n58,0\n59,2\n60,0\n61,2\n62,0\n63,2\n64,0\n65,2\n66,0\n67,2\n68,0\n69,2\n70,0\n71,0\n72,0\n73,2\n74,0\n75,2\n76,0\n77,2\n78,0\n79,2\n80,0\n81,0\n82,2\n83,0\n84,0\n85,2\n86,0\n87,2\n88,0\n89,2\n90,0\n91,2\n92,0\n93,2\n94,0\n95,2\n96,0\n97,2\n98,0\n99,0\n100,0\n101,2\n102,0\n103,2\n104,0\n105,2\n106,0\n107,2\n108,0\n109,2\n110,0\n111,2\n112,0\n113,0\n114,0\n115,2\n116,0\n117,2\n118,0\n119,2\n120,0\n121,2\n122,0\n123,2\n124,0\n125,2\n126,0\n127,2\n128,0\n129,2\n130,0\n131,2\n132,0\n133,2\n134,0\n135,0\n136,0\n137,2\n138,0\n139,0\n140,2\n141,0\n142,0\n143,0\n144,0\n145,2\n146,0\n147,2\n148,2\n149,0\n150,2\n151,2\n152,0\n153,2\n154,2\n155,2\n156,2\n157,2\n158,0\n159,2\n160,0\n161,2\n162,2\n163,0\n164,0\n165,2\n166,0\n167,2\n168,0\n169,2\n170,0\n171,2\n172,2\n173,2\n174,0\n175,2\n176,0\n177,2\n178,0\n179,2\n180,2\n181,2\n182,2\n183,1\n184,0\n185,2\n186,2\n187,0\n188,2\n189,0\n190,2\n191,2\n192,0\n193,2\n194,2\n195,2\n196,2\n197,2\n198,0\n199,2\n200,0\n201,2\n202,0\n203,2\n204,2\n205,0\n206,2\n207,0\n208,0\n209,2\n210,0\n211,2\n212,2\n213,2\n214,1\n215,1\n216,1\n217,1\n218,1\n219,1\n220,1\n221,1\n222,1\n223,1\n224,1\n225,1\n226,1\n227,1\n228,1\n229,1\n230,1\n231,1\n232,1\n233,1\n234,1\n235,1\n236,1\n237,1\n238,1\n239,1\n240,1\n241,1\n242,1\n243,1\n244,1\n245,1\n246,1\n247,1\n248,1\n249,1\n250,1\n251,1\n252,1\n253,1\n254,1\n255,1\n256,1\n257,1\n258,1\n259,1\n260,1\n261,1\n262,1\n263,1\n264,1\n265,1\n266,1\n267,1\n268,1\n269,1\n270,1\n271,1\n272,1\n273,1\n274,1\n275,1\n276,1\n277,1\n278,1\n279,1\n280,1\n281,1\n282,1\n283,1\n284,1\n285,1\n286,1\n287,1\n288,1\n289,1\n290,1\n291,1\n292,1\n293,1\n294,1\n295,1\n296,1\n297,1\n298,1\n299,1\n300,1\n301,1\n302,1\n303,1\n304,1\n305,1\n306,1\n307,1\n308,1\n309,1\n310,1\n311,1\n312,1\n313,1\n314,1\n315,1\n316,1\n317,1\n318,1\n319,1\n320,1\n321,1\n322,1\n323,1\n324,1\n325,1\n326,1\n327,1\n328,1\n329,1\n330,1\n331,1\n332,1\n","out/data/penguins/default/distances/D1/.17e49005/methods/kmeans/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n1.6903\t0:00:01\t0\t0\t0\t0\t0.00\t0.00\t55.10\t0\n","out/data/penguins/default/distances/D1/.17e49005/methods/ward/default/metrics/accuracy/default/penguins.metrics.txt":"0.0930930930930931\n","out/data/penguins/default/distances/D1/.17e49005/methods/ward/default/metrics/accuracy/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n4.7396\t0:00:04\t0\t0\t0\t0\t0.00\t0.00\t47.00\t0\n","out/data/penguins/default/distances/D1/.17e49005/methods/ward/default/metrics/ari/default/penguins.metrics.txt":"0.502132173030734\n","out/data/penguins/default/distances/D1/.17e49005/methods/ward/default/metrics/ari/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n3.3128\t0:00:03\t0\t0\t0\t0\t0.00\t0.00\t20.01\t0\n","out/data/penguins/default/distances/D1/.17e49005/methods/ward/default/penguins.clusters.csv":"id,label\n0,1\n1,2\n2,2\n3,2\n4,1\n5,2\n6,1\n7,2\n8,1\n9,1\n10,2\n11,2\n12,1\n13,2\n14,1\n15,2\n16,1\n17,2\n18,1\n19,1\n20,2\n21,1\n22,2\n23,2\n24,1\n25,2\n26,1\n27,2\n28,1\n29,2\n30,1\n31,1\n32,2\n33,2\n34,1\n35,2\n36,1\n37,2\n38,1\n39,2\n40,1\n41,1\n42,2\n43,1\n44,2\n45,1\n46,2\n47,1\n48,2\n49,1\n50,2\n51,1\n52,2\n53,1\n54,2\n55,1\n56,2\n57,1\n58,2\n59,1\n60,2\n61,1\n62,2\n63,1\n64,2\n65,1\n66,2\n67,1\n68,2\n69,1\n70,2\n71,1\n72,2\n73,1\n74,2\n75,1\n76,2\n77,1\n78,2\n79,1\n80,1\n81,2\n82,1\n83,2\n84,2\n85,1\n86,2\n87,1\n88,2\n89,1\n90,2\n91,1\n92,2\n93,1\n94,2\n95,1\n96,2\n97,1\n98,2\n99,1\n100,2\n101,1\n102,2\n103,1\n104,2\n105,1\n106,2\n107,1\n108,1\n109,1\n110,2\n111,1\n112,2\n113,1\n114,2\n115,1\n116,2\n117,1\n118,2\n119,1\n120,2\n121,1\n122,2\n123,1\n124,2\n125,1\n126,2\n127,1\n128,2\n129,1\n130,2\n131,1\n132,2\n133,1\n134,2\n135,1\n136,2\n137,1\n138,2\n139,1\n140,1\n141,2\n142,2\n143,1\n144,2\n145,1\n146,2\n147,1\n148,1\n149,2\n150,1\n151,2\n152,2\n153,1\n154,2\n155,1\n156,2\n157,1\n158,2\n159,1\n160,2\n161,1\n162,1\n163,2\n164,2\n165,1\n166,2\n167,1\n168,2\n169,1\n170,2\n171,1\n172,2\n173,1\n174,2\n175,1\n176,2\n177,1\n178,2\n179,1\n180,1\n181,2\n182,2\n183,1\n184,2\n185,1\n186,1\n187,2\n188,1\n189,2\n190,2\n191,1\n192,2\n193,1\n194,1\n195,2\n196,2\n197,1\n198,2\n199,1\n200,2\n201,1\n202,2\n203,1\n204,1\n205,2\n206,1\n207,2\n208,2\n209,1\n210,2\n211,1\n212,1\n213,2\n214,3\n215,3\n216,3\n217,3\n218,3\n219,3\n220,3\n221,3\n222,3\n223,3\n224,3\n225,3\n226,3\n227,3\n228,3\n229,3\n230,3\n231,3\n232,3\n233,3\n234,3\n235,3\n236,3\n237,3\n238,3\n239,3\n240,3\n241,3\n242,3\n243,3\n244,3\n245,3\n246,3\n247,3\n248,3\n249,3\n250,3\n251,3\n252,3\n253,3\n254,3\n255,3\n256,3\n257,3\n258,3\n259,3\n260,3\n261,3\n262,3\n263,3\n264,3\n265,3\n266,3\n267,3\n268,3\n269,3\n270,3\n271,3\n272,3\n273,3\n274,3\n275,3\n276,3\n277,3\n278,3\n279,3\n280,3\n281,3\n282,3\n283,3\n284,3\n285,3\n286,3\n287,3\n288,3\n289,3\n290,3\n291,3\n292,3\n293,3\n294,3\n295,3\n296,3\n297,3\n298,3\n299,3\n300,3\n301,3\n302,3\n303,3\n304,3\n305,3\n306,3\n307,3\n308,3\n309,3\n310,3\n311,3\n312,3\n313,3\n314,3\n315,3\n316,3\n317,3\n318,3\n319,3\n320,3\n321,3\n322,3\n323,3\n324,3\n325,3\n326,3\n327,3\n328,3\n329,3\n330,3\n331,3\n332,3\n","out/data/penguins/default/distances/D1/.17e49005/methods/ward/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n3.6875\t0:00:03\t0\t0\t0\t0\t0.00\t0.00\t17.69\t0\n","out/data/penguins/default/distances/D1/.17e49005/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n1.4711\t0:00:01\t0\t0\t0\t0\t0.00\t0.00\t26.62\t0\n","out/data/penguins/default/distances/D1/.35923507/methods/kmeans/default/metrics/accuracy/default/penguins.metrics.txt":"0.426426426426426\n","out/data/penguins/default/distances/D1/.35923507/methods/kmeans/default/metrics/accuracy/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n5.7594\t0:00:05\t0\t0\t0\t0\t0.00\t0.00\t37.96\t0\n","out/data/penguins/default/distances/D1/.35923507/methods/kmeans/default/metrics/ari/default/penguins.metrics.txt":"0.710472951240996\n","out/data/penguins/default/distances/D1/.35923507/methods/kmeans/default/metrics/ari/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n5.0015\t0:00:05\t0\t0\t0\t0\t0.00\t0.00\t24.00\t0\n","out/data/penguins/default/distances/D1/.35923507/methods/kmeans/default/penguins.clusters.csv":"id,label\n0,0\n1,0\n2,0\n3,0\n4,0\n5,0\n6,0\n7,0\n8,0\n9,0\n10,0\n11,0\n12,2\n13,0\n14,2\n15,0\n16,0\n17,0\n18,0\n19,0\n20,0\n21,0\n22,0\n23,0\n24,0\n25,0\n26,0\n27,0\n28,0\n29,0\n30,0\n31,0\n32,0\n33,0\n34,0\n35,0\n36,0\n37,0\n38,2\n39,0\n40,0\n41,0\n42,0\n43,0\n44,0\n45,0\n46,0\n47,0\n48,0\n49,0\n50,0\n51,0\n52,0\n53,0\n54,0\n55,0\n56,0\n57,0\n58,0\n59,0\n60,0\n61,0\n62,0\n63,2\n64,0\n65,0\n66,0\n67,2\n68,0\n69,0\n70,0\n71,0\n72,0\n73,0\n74,0\n75,2\n76,0\n77,0\n78,0\n79,0\n80,0\n81,0\n82,0\n83,0\n84,0\n85,2\n86,0\n87,0\n88,0\n89,2\n90,0\n91,0\n92,0\n93,0\n94,0\n95,2\n96,0\n97,0\n98,0\n99,0\n100,0\n101,0\n102,0\n103,2\n104,0\n105,2\n106,0\n107,0\n108,0\n109,0\n110,0\n111,0\n112,0\n113,0\n114,0\n115,0\n116,0\n117,0\n118,0\n119,0\n120,0\n121,0\n122,0\n123,2\n124,0\n125,0\n126,0\n127,0\n128,0\n129,0\n130,0\n131,0\n132,0\n133,0\n134,0\n135,0\n136,0\n137,0\n138,0\n139,0\n140,0\n141,0\n142,0\n143,0\n144,0\n145,0\n146,0\n147,2\n148,2\n149,0\n150,2\n151,2\n152,0\n153,2\n154,2\n155,2\n156,2\n157,2\n158,0\n159,2\n160,0\n161,2\n162,2\n163,2\n164,0\n165,2\n166,0\n167,2\n168,0\n169,2\n170,0\n171,2\n172,2\n173,2\n174,0\n175,2\n176,0\n177,2\n178,0\n179,2\n180,2\n181,2\n182,2\n183,2\n184,0\n185,2\n186,2\n187,0\n188,2\n189,0\n190,2\n191,2\n192,2\n193,2\n194,2\n195,2\n196,2\n197,2\n198,0\n199,2\n200,0\n201,2\n202,0\n203,2\n204,2\n205,0\n206,2\n207,0\n208,0\n209,2\n210,0\n211,2\n212,2\n213,2\n214,1\n215,1\n216,1\n217,1\n218,1\n219,1\n220,1\n221,1\n222,1\n223,1\n224,1\n225,1\n226,1\n227,1\n228,1\n229,1\n230,1\n231,1\n232,1\n233,1\n234,1\n235,1\n236,1\n237,1\n238,1\n239,1\n240,1\n241,1\n242,1\n243,1\n244,1\n245,1\n246,1\n247,1\n248,1\n249,1\n250,1\n251,1\n252,1\n253,1\n254,1\n255,1\n256,1\n257,1\n258,1\n259,1\n260,1\n261,1\n262,1\n263,1\n264,1\n265,1\n266,1\n267,1\n268,1\n269,1\n270,1\n271,1\n272,1\n273,1\n274,1\n275,1\n276,1\n277,1\n278,1\n279,1\n280,1\n281,1\n282,1\n283,1\n284,1\n285,1\n286,1\n287,1\n288,1\n289,1\n290,1\n291,1\n292,1\n293,1\n294,1\n295,1\n296,1\n297,1\n298,1\n299,1\n300,1\n301,1\n302,1\n303,1\n304,1\n305,1\n306,1\n307,1\n308,1\n309,1\n310,1\n311,1\n312,1\n313,1\n314,1\n315,1\n316,1\n317,1\n318,1\n319,1\n320,1\n321,1\n322,1\n323,1\n324,1\n325,1\n326,1\n327,1\n328,1\n329,1\n330,1\n331,1\n332,1\n","out/data/penguins/default/distances/D1/.35923507/methods/kmeans/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n1.7590\t0:00:01\t0\t0\t0\t0\t0.00\t0.00\t49.21\t0\n","out/data/penguins/default/distances/D1/.35923507/methods/ward/default/metrics/accuracy/default/penguins.metrics.txt":"0.012012012012012\n","out/data/penguins/default/distances/D1/.35923507/methods/ward/default/metrics/accuracy/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n4.8674\t0:00:04\t0\t0\t0\t0\t0.00\t0.00\t42.64\t0\n","out/data/penguins/default/distances/D1/.35923507/methods/ward/default/metrics/ari/default/penguins.metrics.txt":"0.879336112169172\n","out/data/penguins/default/distances/D1/.35923507/methods/ward/default/metrics/ari/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n3.3329\t0:00:03\t0\t0\t0\t0\t0.00\t0.00\t20.27\t0\n","out/data/penguins/default/distances/D1/.35923507/methods/ward/default/penguins.clusters.csv":"id,label\n0,1\n1,1\n2,1\n3,1\n4,1\n5,1\n6,1\n7,1\n8,1\n9,1\n10,1\n11,1\n12,1\n13,1\n14,1\n15,1\n16,1\n17,1\n18,1\n19,1\n20,1\n21,1\n22,1\n23,1\n24,1\n25,1\n26,1\n27,1\n28,1\n29,1\n30,1\n31,1\n32,1\n33,1\n34,1\n35,1\n36,1\n37,1\n38,1\n39,1\n40,1\n41,1\n42,1\n43,1\n44,1\n45,1\n46,1\n47,1\n48,1\n49,1\n50,1\n51,1\n52,1\n53,1\n54,1\n55,1\n56,1\n57,1\n58,1\n59,1\n60,1\n61,1\n62,1\n63,1\n64,1\n65,1\n66,1\n67,1\n68,1\n69,1\n70,1\n71,1\n72,1\n73,1\n74,1\n75,1\n76,1\n77,1\n78,1\n79,1\n80,1\n81,1\n82,1\n83,1\n84,1\n85,1\n86,1\n87,1\n88,1\n89,1\n90,1\n91,1\n92,1\n93,1\n94,1\n95,1\n96,1\n97,1\n98,1\n99,1\n100,1\n101,1\n102,1\n103,1\n104,1\n105,1\n106,1\n107,1\n108,1\n109,1\n110,1\n111,1\n112,1\n113,1\n114,1\n115,1\n116,1\n117,1\n118,1\n119,1\n120,1\n121,1\n122,1\n123,1\n124,1\n125,1\n126,1\n127,1\n128,1\n129,1\n130,1\n131,1\n132,1\n133,1\n134,1\n135,1\n136,1\n137,1\n138,1\n139,1\n140,1\n141,1\n142,1\n143,1\n144,1\n145,1\n146,2\n147,2\n148,2\n149,2\n150,2\n151,2\n152,2\n153,2\n154,2\n155,2\n156,2\n157,2\n158,2\n159,2\n160,2\n161,2\n162,2\n163,2\n164,2\n165,2\n166,1\n167,2\n168,2\n169,2\n170,2\n171,2\n172,2\n173,2\n174,2\n175,2\n176,1\n177,2\n178,1\n179,2\n180,2\n181,2\n182,2\n183,2\n184,2\n185,2\n186,2\n187,2\n188,2\n189,2\n190,2\n191,2\n192,2\n193,2\n194,2\n195,2\n196,2\n197,2\n198,2\n199,2\n200,1\n201,2\n202,2\n203,2\n204,2\n205,2\n206,2\n207,2\n208,2\n209,2\n210,2\n211,2\n212,2\n213,2\n214,3\n215,3\n216,3\n217,3\n218,3\n219,3\n220,3\n221,3\n222,3\n223,3\n224,3\n225,3\n226,3\n227,3\n228,3\n229,3\n230,3\n231,3\n232,3\n233,3\n234,3\n235,3\n236,3\n237,3\n238,3\n239,3\n240,3\n241,3\n242,3\n243,3\n244,3\n245,3\n246,3\n247,3\n248,3\n249,3\n250,3\n251,3\n252,3\n253,3\n254,3\n255,3\n256,3\n257,3\n258,3\n259,3\n260,3\n261,3\n262,3\n263,3\n264,3\n265,3\n266,3\n267,3\n268,3\n269,3\n270,3\n271,3\n272,3\n273,3\n274,3\n275,3\n276,3\n277,3\n278,3\n279,3\n280,3\n281,3\n282,3\n283,3\n284,3\n285,3\n286,3\n287,3\n288,3\n289,3\n290,3\n291,3\n292,3\n293,3\n294,3\n295,3\n296,3\n297,3\n298,3\n299,3\n300,3\n301,3\n302,3\n303,3\n304,3\n305,3\n306,3\n307,3\n308,3\n309,3\n310,3\n311,3\n312,3\n313,3\n314,3\n315,3\n316,3\n317,3\n318,3\n319,3\n320,3\n321,3\n322,3\n323,3\n324,3\n325,3\n326,3\n327,3\n328,3\n329,3\n330,3\n331,3\n332,3\n","out/data/penguins/default/distances/D1/.35923507/methods/ward/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n3.5385\t0:00:03\t0\t0\t0\t0\t0.00\t0.00\t29.25\t0\n","out/data/penguins/default/distances/D1/.35923507/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n1.5009\t0:00:01\t0\t0\t0\t0\t0.00\t0.00\t26.04\t0\n","out/data/penguins/default/distances/D1/.7303dd4b/methods/kmeans/default/metrics/accuracy/default/penguins.metrics.txt":"0.438438438438438\n","out/data/penguins/default/distances/D1/.7303dd4b/methods/kmeans/default/metrics/accuracy/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n5.8907\t0:00:05\t0\t0\t0\t0\t0.00\t0.00\t37.53\t0\n","out/data/penguins/default/distances/D1/.7303dd4b/methods/kmeans/default/metrics/ari/default/penguins.metrics.txt":"0.807138536785313\n","out/data/penguins/default/distances/D1/.7303dd4b/methods/kmeans/default/metrics/ari/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n4.8962\t0:00:04\t0\t0\t0\t0\t0.00\t0.00\t40.27\t0\n","out/data/penguins/default/distances/D1/.7303dd4b/methods/kmeans/default/penguins.clusters.csv":"id,label\n0,0\n1,0\n2,0\n3,0\n4,0\n5,0\n6,0\n7,0\n8,0\n9,0\n10,0\n11,0\n12,0\n13,0\n14,2\n15,0\n16,0\n17,0\n18,0\n19,0\n20,0\n21,0\n22,0\n23,0\n24,0\n25,0\n26,0\n27,0\n28,0\n29,0\n30,0\n31,0\n32,0\n33,0\n34,0\n35,0\n36,0\n37,0\n38,0\n39,0\n40,0\n41,0\n42,0\n43,0\n44,0\n45,0\n46,0\n47,0\n48,0\n49,0\n50,0\n51,0\n52,0\n53,0\n54,0\n55,0\n56,0\n57,0\n58,0\n59,0\n60,0\n61,0\n62,0\n63,0\n64,0\n65,0\n66,0\n67,2\n68,0\n69,0\n70,0\n71,0\n72,0\n73,0\n74,0\n75,2\n76,0\n77,0\n78,0\n79,0\n80,0\n81,0\n82,0\n83,0\n84,0\n85,0\n86,0\n87,0\n88,0\n89,0\n90,0\n91,0\n92,0\n93,0\n94,0\n95,0\n96,0\n97,0\n98,0\n99,0\n100,0\n101,0\n102,0\n103,2\n104,0\n105,2\n106,0\n107,0\n108,0\n109,0\n110,0\n111,0\n112,0\n113,0\n114,0\n115,0\n116,0\n117,0\n118,0\n119,0\n120,0\n121,0\n122,0\n123,2\n124,0\n125,0\n126,0\n127,0\n128,0\n129,0\n130,0\n131,0\n132,0\n133,0\n134,0\n135,0\n136,0\n137,0\n138,0\n139,0\n140,0\n141,0\n142,0\n143,0\n144,0\n145,0\n146,2\n147,2\n148,2\n149,2\n150,2\n151,2\n152,0\n153,2\n154,2\n155,2\n156,2\n157,2\n158,2\n159,2\n160,2\n161,2\n162,2\n163,2\n164,2\n165,2\n166,0\n167,2\n168,0\n169,2\n170,2\n171,2\n172,2\n173,2\n174,2\n175,2\n176,0\n177,2\n178,0\n179,2\n180,2\n181,2\n182,2\n183,2\n184,2\n185,2\n186,2\n187,2\n188,2\n189,2\n190,2\n191,2\n192,2\n193,2\n194,2\n195,2\n196,2\n197,2\n198,2\n199,2\n200,0\n201,2\n202,0\n203,2\n204,2\n205,2\n206,2\n207,2\n208,2\n209,2\n210,0\n211,2\n212,2\n213,2\n214,1\n215,1\n216,1\n217,1\n218,1\n219,1\n220,1\n221,1\n222,1\n223,1\n224,1\n225,1\n226,1\n227,1\n228,1\n229,1\n230,1\n231,1\n232,1\n233,1\n234,1\n235,1\n236,1\n237,1\n238,1\n239,1\n240,1\n241,1\n242,1\n243,1\n244,1\n245,1\n246,1\n247,1\n248,1\n249,1\n250,1\n251,1\n252,1\n253,1\n254,1\n255,1\n256,1\n257,1\n258,1\n259,1\n260,1\n261,1\n262,1\n263,1\n264,1\n265,1\n266,1\n267,1\n268,1\n269,1\n270,1\n271,1\n272,1\n273,1\n274,1\n275,1\n276,1\n277,1\n278,1\n279,1\n280,1\n281,1\n282,1\n283,1\n284,1\n285,1\n286,1\n287,1\n288,1\n289,1\n290,1\n291,1\n292,1\n293,1\n294,1\n295,1\n296,1\n297,1\n298,1\n299,1\n300,1\n301,1\n302,1\n303,1\n304,1\n305,1\n306,1\n307,1\n308,1\n309,1\n310,1\n311,1\n312,1\n313,1\n314,1\n315,1\n316,1\n317,1\n318,1\n319,1\n320,1\n321,1\n322,1\n323,1\n324,1\n325,1\n326,1\n327,1\n328,1\n329,1\n330,1\n331,1\n332,1\n","out/data/penguins/default/distances/D1/.7303dd4b/methods/kmeans/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n1.6700\t0:00:01\t0\t0\t0\t0\t0.00\t0.00\t57.26\t0\n","out/data/penguins/default/distances/D1/.7303dd4b/methods/ward/default/metrics/accuracy/default/penguins.metrics.txt":"0.021021021021021\n","out/data/penguins/default/distances/D1/.7303dd4b/methods/ward/default/metrics/accuracy/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n4.6381\t0:00:04\t0\t0\t0\t0\t0.00\t0.00\t36.90\t0\n","out/data/penguins/default/distances/D1/.7303dd4b/methods/ward/default/metrics/ari/default/penguins.metrics.txt":"0.857367184370372\n","out/data/penguins/default/distances/D1/.7303dd4b/methods/ward/default/metrics/ari/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n3.5644\t0:00:03\t0\t0\t0\t0\t0.00\t0.00\t24.61\t0\n","out/data/penguins/default/distances/D1/.7303dd4b/methods/ward/default/penguins.clusters.csv":"id,label\n0,1\n1,1\n2,1\n3,1\n4,1\n5,1\n6,1\n7,1\n8,1\n9,1\n10,1\n11,1\n12,1\n13,1\n14,1\n15,1\n16,1\n17,1\n18,1\n19,1\n20,1\n21,1\n22,1\n23,1\n24,1\n25,1\n26,1\n27,1\n28,1\n29,1\n30,1\n31,1\n32,1\n33,1\n34,1\n35,1\n36,1\n37,1\n38,1\n39,1\n40,1\n41,1\n42,1\n43,1\n44,1\n45,1\n46,1\n47,1\n48,1\n49,1\n50,1\n51,1\n52,1\n53,1\n54,1\n55,1\n56,1\n57,1\n58,1\n59,1\n60,1\n61,1\n62,1\n63,1\n64,1\n65,1\n66,1\n67,1\n68,1\n69,1\n70,1\n71,1\n72,1\n73,1\n74,1\n75,1\n76,1\n77,1\n78,1\n79,1\n80,1\n81,1\n82,1\n83,1\n84,1\n85,1\n86,1\n87,1\n88,1\n89,1\n90,1\n91,1\n92,1\n93,1\n94,1\n95,1\n96,1\n97,1\n98,1\n99,1\n100,1\n101,1\n102,1\n103,1\n104,1\n105,1\n106,1\n107,1\n108,1\n109,1\n110,1\n111,1\n112,1\n113,1\n114,1\n115,1\n116,1\n117,1\n118,1\n119,1\n120,1\n121,1\n122,1\n123,1\n124,1\n125,1\n126,1\n127,1\n128,1\n129,1\n130,1\n131,1\n132,1\n133,1\n134,1\n135,1\n136,1\n137,1\n138,1\n139,1\n140,1\n141,1\n142,1\n143,1\n144,1\n145,1\n146,2\n147,2\n148,2\n149,2\n150,2\n151,2\n152,2\n153,2\n154,2\n155,2\n156,2\n157,2\n158,2\n159,2\n160,2\n161,2\n162,2\n163,2\n164,2\n165,2\n166,1\n167,2\n168,1\n169,2\n170,2\n171,2\n172,2\n173,2\n174,2\n175,2\n176,1\n177,2\n178,1\n179,2\n180,2\n181,2\n182,2\n183,2\n184,1\n185,2\n186,2\n187,2\n188,2\n189,2\n190,2\n191,2\n192,2\n193,2\n194,2\n195,2\n196,2\n197,2\n198,2\n199,2\n200,1\n201,2\n202,1\n203,2\n204,2\n205,2\n206,2\n207,2\n208,2\n209,2\n210,2\n211,2\n212,2\n213,2\n214,3\n215,3\n216,3\n217,3\n218,3\n219,3\n220,3\n221,3\n222,3\n223,3\n224,3\n225,3\n226,3\n227,3\n228,3\n229,3\n230,3\n231,3\n232,3\n233,3\n234,3\n235,3\n236,3\n237,3\n238,3\n239,3\n240,3\n241,3\n242,3\n243,3\n244,3\n245,3\n246,3\n247,3\n248,3\n249,3\n250,3\n251,3\n252,3\n253,3\n254,3\n255,3\n256,3\n257,3\n258,3\n259,3\n260,3\n261,3\n262,3\n263,3\n264,3\n265,3\n266,3\n267,3\n268,3\n269,3\n270,3\n271,3\n272,3\n273,3\n274,3\n275,3\n276,3\n277,3\n278,3\n279,3\n280,3\n281,3\n282,3\n283,3\n284,3\n285,3\n286,3\n287,3\n288,3\n289,3\n290,3\n291,3\n292,3\n293,3\n294,3\n295,3\n296,3\n297,3\n298,3\n299,3\n300,3\n301,3\n302,3\n303,3\n304,3\n305,3\n306,3\n307,3\n308,3\n309,3\n310,3\n311,3\n312,3\n313,3\n314,3\n315,3\n316,3\n317,3\n318,3\n319,3\n320,3\n321,3\n322,3\n323,3\n324,3\n325,3\n326,3\n327,3\n328,3\n329,3\n330,3\n331,3\n332,3\n","out/data/penguins/default/distances/D1/.7303dd4b/methods/ward/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n3.1880\t0:00:03\t0\t0\t0\t0\t0.00\t0.00\t32.29\t0\n","out/data/penguins/default/distances/D1/.7303dd4b/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n1.4339\t0:00:01\t0\t0\t0\t0\t0.00\t0.00\t26.98\t0\n","out/data/penguins/default/distances/D1/.fbc351b8/methods/kmeans/default/metrics/accuracy/default/penguins.metrics.txt":"0.348348348348348\n","out/data/penguins/default/distances/D1/.fbc351b8/methods/kmeans/default/metrics/accuracy/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n5.5601\t0:00:05\t0\t0\t0\t0\t0.00\t0.00\t37.67\t0\n","out/data/penguins/default/distances/D1/.fbc351b8/methods/kmeans/default/metrics/ari/default/penguins.metrics.txt":"0.631999834249273\n","out/data/penguins/default/distances/D1/.fbc351b8/methods/kmeans/default/metrics/ari/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n3.2827\t0:00:03\t0\t0\t0\t0\t0.00\t0.00\t19.49\t0\n","out/data/penguins/default/distances/D1/.fbc351b8/methods/kmeans/default/penguins.clusters.csv":"id,label\n0,0\n1,0\n2,0\n3,0\n4,0\n5,0\n6,2\n7,0\n8,0\n9,0\n10,0\n11,0\n12,2\n13,0\n14,2\n15,0\n16,0\n17,0\n18,0\n19,0\n20,0\n21,0\n22,0\n23,0\n24,0\n25,0\n26,0\n27,0\n28,0\n29,0\n30,2\n31,0\n32,0\n33,0\n34,2\n35,0\n36,2\n37,0\n38,2\n39,0\n40,2\n41,0\n42,0\n43,2\n44,0\n45,0\n46,0\n47,2\n48,0\n49,0\n50,0\n51,0\n52,0\n53,0\n54,0\n55,2\n56,0\n57,2\n58,0\n59,2\n60,0\n61,0\n62,0\n63,2\n64,0\n65,0\n66,0\n67,2\n68,0\n69,2\n70,0\n71,0\n72,0\n73,2\n74,0\n75,2\n76,0\n77,0\n78,0\n79,0\n80,0\n81,0\n82,0\n83,0\n84,0\n85,2\n86,0\n87,0\n88,0\n89,2\n90,0\n91,2\n92,0\n93,2\n94,0\n95,2\n96,0\n97,0\n98,0\n99,0\n100,0\n101,0\n102,0\n103,2\n104,0\n105,2\n106,0\n107,2\n108,0\n109,2\n110,0\n111,0\n112,0\n113,0\n114,0\n115,0\n116,0\n117,2\n118,0\n119,2\n120,0\n121,2\n122,0\n123,2\n124,0\n125,2\n126,0\n127,2\n128,0\n129,0\n130,0\n131,2\n132,0\n133,2\n134,0\n135,0\n136,0\n137,0\n138,0\n139,0\n140,0\n141,0\n142,0\n143,0\n144,0\n145,2\n146,2\n147,2\n148,2\n149,2\n150,2\n151,2\n152,0\n153,2\n154,2\n155,2\n156,2\n157,2\n158,2\n159,2\n160,2\n161,2\n162,2\n163,2\n164,2\n165,2\n166,0\n167,2\n168,0\n169,2\n170,2\n171,2\n172,2\n173,2\n174,2\n175,2\n176,0\n177,2\n178,0\n179,2\n180,2\n181,2\n182,2\n183,2\n184,0\n185,2\n186,2\n187,2\n188,2\n189,2\n190,2\n191,2\n192,2\n193,2\n194,2\n195,2\n196,2\n197,2\n198,2\n199,2\n200,0\n201,2\n202,0\n203,2\n204,2\n205,2\n206,2\n207,2\n208,2\n209,2\n210,2\n211,2\n212,2\n213,2\n214,1\n215,1\n216,1\n217,1\n218,1\n219,1\n220,1\n221,1\n222,1\n223,1\n224,1\n225,1\n226,1\n227,1\n228,1\n229,1\n230,1\n231,1\n232,1\n233,1\n234,1\n235,1\n236,1\n237,1\n238,1\n239,1\n240,1\n241,1\n242,1\n243,1\n244,1\n245,1\n246,1\n247,1\n248,1\n249,1\n250,1\n251,1\n252,1\n253,1\n254,1\n255,1\n256,1\n257,1\n258,1\n259,1\n260,1\n261,1\n262,1\n263,1\n264,1\n265,1\n266,1\n267,1\n268,1\n269,1\n270,1\n271,1\n272,1\n273,1\n274,1\n275,1\n276,1\n277,1\n278,1\n279,1\n280,1\n281,1\n282,1\n283,1\n284,1\n285,1\n286,1\n287,1\n288,1\n289,1\n290,1\n291,1\n292,1\n293,1\n294,1\n295,1\n296,1\n297,1\n298,1\n299,1\n300,1\n301,1\n302,1\n303,1\n304,1\n305,1\n306,1\n307,1\n308,1\n309,1\n310,1\n311,1\n312,1\n313,1\n314,1\n315,1\n316,1\n317,1\n318,1\n319,1\n320,1\n321,1\n322,1\n323,1\n324,1\n325,1\n326,1\n327,1\n328,1\n329,1\n330,1\n331,1\n332,1\n","out/data/penguins/default/distances/D1/.fbc351b8/methods/kmeans/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n1.6590\t0:00:01\t0\t0\t0\t0\t0.00\t0.00\t56.21\t0\n","out/data/penguins/default/distances/D1/.fbc351b8/methods/ward/default/metrics/accuracy/default/penguins.metrics.txt":"0.015015015015015\n","out/data/penguins/default/distances/D1/.fbc351b8/methods/ward/default/metrics/accuracy/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n6.7960\t0:00:06\t0\t0\t0\t0\t0.00\t0.00\t40.56\t0\n","out/data/penguins/default/distances/D1/.fbc351b8/methods/ward/default/metrics/ari/default/penguins.metrics.txt":"0.871918474298944\n","out/data/penguins/default/distances/D1/.fbc351b8/methods/ward/default/metrics/ari/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n3.5733\t0:00:03\t0\t0\t0\t0\t0.00\t0.00\t19.72\t0\n","out/data/penguins/default/distances/D1/.fbc351b8/methods/ward/default/penguins.clusters.csv":"id,label\n0,1\n1,1\n2,1\n3,1\n4,1\n5,1\n6,1\n7,1\n8,1\n9,1\n10,1\n11,1\n12,1\n13,1\n14,1\n15,1\n16,1\n17,1\n18,1\n19,1\n20,1\n21,1\n22,1\n23,1\n24,1\n25,1\n26,1\n27,1\n28,1\n29,1\n30,1\n31,1\n32,1\n33,1\n34,1\n35,1\n36,1\n37,1\n38,1\n39,1\n40,1\n41,1\n42,1\n43,1\n44,1\n45,1\n46,1\n47,1\n48,1\n49,1\n50,1\n51,1\n52,1\n53,1\n54,1\n55,1\n56,1\n57,1\n58,1\n59,1\n60,1\n61,1\n62,1\n63,1\n64,1\n65,1\n66,1\n67,1\n68,1\n69,1\n70,1\n71,1\n72,1\n73,1\n74,1\n75,1\n76,1\n77,1\n78,1\n79,1\n80,1\n81,1\n82,1\n83,1\n84,1\n85,1\n86,1\n87,1\n88,1\n89,1\n90,1\n91,1\n92,1\n93,1\n94,1\n95,1\n96,1\n97,1\n98,1\n99,1\n100,1\n101,1\n102,1\n103,1\n104,1\n105,1\n106,1\n107,1\n108,1\n109,1\n110,1\n111,1\n112,1\n113,1\n114,1\n115,1\n116,1\n117,1\n118,1\n119,1\n120,1\n121,1\n122,1\n123,1\n124,1\n125,1\n126,1\n127,1\n128,1\n129,1\n130,1\n131,1\n132,1\n133,1\n134,1\n135,1\n136,1\n137,1\n138,1\n139,1\n140,1\n141,1\n142,1\n143,1\n144,1\n145,1\n146,2\n147,2\n148,2\n149,2\n150,2\n151,2\n152,1\n153,2\n154,2\n155,2\n156,2\n157,2\n158,2\n159,2\n160,2\n161,2\n162,2\n163,2\n164,2\n165,2\n166,1\n167,2\n168,2\n169,2\n170,2\n171,2\n172,2\n173,2\n174,2\n175,2\n176,1\n177,2\n178,1\n179,2\n180,2\n181,2\n182,2\n183,2\n184,2\n185,2\n186,2\n187,2\n188,2\n189,2\n190,2\n191,2\n192,2\n193,2\n194,2\n195,2\n196,2\n197,2\n198,2\n199,2\n200,1\n201,2\n202,2\n203,2\n204,2\n205,2\n206,2\n207,2\n208,2\n209,2\n210,2\n211,2\n212,2\n213,2\n214,3\n215,3\n216,3\n217,3\n218,3\n219,3\n220,3\n221,3\n222,3\n223,3\n224,3\n225,3\n226,3\n227,3\n228,3\n229,3\n230,3\n231,3\n232,3\n233,3\n234,3\n235,3\n236,3\n237,3\n238,3\n239,3\n240,3\n241,3\n242,3\n243,3\n244,3\n245,3\n246,3\n247,3\n248,3\n249,3\n250,3\n251,3\n252,3\n253,3\n254,3\n255,3\n256,3\n257,3\n258,3\n259,3\n260,3\n261,3\n262,3\n263,3\n264,3\n265,3\n266,3\n267,3\n268,3\n269,3\n270,3\n271,3\n272,3\n273,3\n274,3\n275,3\n276,3\n277,3\n278,3\n279,3\n280,3\n281,3\n282,3\n283,3\n284,3\n285,3\n286,3\n287,3\n288,3\n289,3\n290,3\n291,3\n292,3\n293,3\n294,3\n295,3\n296,3\n297,3\n298,3\n299,3\n300,3\n301,3\n302,3\n303,3\n304,3\n305,3\n306,3\n307,3\n308,3\n309,3\n310,3\n311,3\n312,3\n313,3\n314,3\n315,3\n316,3\n317,3\n318,3\n319,3\n320,3\n321,3\n322,3\n323,3\n324,3\n325,3\n326,3\n327,3\n328,3\n329,3\n330,3\n331,3\n332,3\n","out/data/penguins/default/distances/D1/.fbc351b8/methods/ward/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n3.5578\t0:00:03\t0\t0\t0\t0\t0.00\t0.00\t16.88\t0\n","out/data/penguins/default/distances/D1/.fbc351b8/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n1.4628\t0:00:01\t0\t0\t0\t0\t0.00\t0.00\t26.60\t0\n","out/data/penguins/default/penguins.labels.csv":"id,label\n0,0\n1,0\n2,0\n3,0\n4,0\n5,0\n6,0\n7,0\n8,0\n9,0\n10,0\n11,0\n12,0\n13,0\n14,0\n15,0\n16,0\n17,0\n18,0\n19,0\n20,0\n21,0\n22,0\n23,0\n24,0\n25,0\n26,0\n27,0\n28,0\n29,0\n30,0\n31,0\n32,0\n33,0\n34,0\n35,0\n36,0\n37,0\n38,0\n39,0\n40,0\n41,0\n42,0\n43,0\n44,0\n45,0\n46,0\n47,0\n48,0\n49,0\n50,0\n51,0\n52,0\n53,0\n54,0\n55,0\n56,0\n57,0\n58,0\n59,0\n60,0\n61,0\n62,0\n63,0\n64,0\n65,0\n66,0\n67,0\n68,0\n69,0\n70,0\n71,0\n72,0\n73,0\n74,0\n75,0\n76,0\n77,0\n78,0\n79,0\n80,0\n81,0\n82,0\n83,0\n84,0\n85,0\n86,0\n87,0\n88,0\n89,0\n90,0\n91,0\n92,0\n93,0\n94,0\n95,0\n96,0\n97,0\n98,0\n99,0\n100,0\n101,0\n102,0\n103,0\n104,0\n105,0\n106,0\n107,0\n108,0\n109,0\n110,0\n111,0\n112,0\n113,0\n114,0\n115,0\n116,0\n117,0\n118,0\n119,0\n120,0\n121,0\n122,0\n123,0\n124,0\n125,0\n126,0\n127,0\n128,0\n129,0\n130,0\n131,0\n132,0\n133,0\n134,0\n135,0\n136,0\n137,0\n138,0\n139,0\n140,0\n141,0\n142,0\n143,0\n144,0\n145,0\n146,0\n147,0\n148,0\n149,0\n150,0\n151,0\n152,1\n153,1\n154,1\n155,1\n156,1\n157,1\n158,1\n159,1\n160,1\n161,1\n162,1\n163,1\n164,1\n165,1\n166,1\n167,1\n168,1\n169,1\n170,1\n171,1\n172,1\n173,1\n174,1\n175,1\n176,1\n177,1\n178,1\n179,1\n180,1\n181,1\n182,1\n183,1\n184,1\n185,1\n186,1\n187,1\n188,1\n189,1\n190,1\n191,1\n192,1\n193,1\n194,1\n195,1\n196,1\n197,1\n198,1\n199,1\n200,1\n201,1\n202,1\n203,1\n204,1\n205,1\n206,1\n207,1\n208,1\n209,1\n210,1\n211,1\n212,1\n213,1\n214,1\n215,1\n216,1\n217,1\n218,1\n219,1\n220,2\n221,2\n222,2\n223,2\n224,2\n225,2\n226,2\n227,2\n228,2\n229,2\n230,2\n231,2\n232,2\n233,2\n234,2\n235,2\n236,2\n237,2\n238,2\n239,2\n240,2\n241,2\n242,2\n243,2\n244,2\n245,2\n246,2\n247,2\n248,2\n249,2\n250,2\n251,2\n252,2\n253,2\n254,2\n255,2\n256,2\n257,2\n258,2\n259,2\n260,2\n261,2\n262,2\n263,2\n264,2\n265,2\n266,2\n267,2\n268,2\n269,2\n270,2\n271,2\n272,2\n273,2\n274,2\n275,2\n276,2\n277,2\n278,2\n279,2\n280,2\n281,2\n282,2\n283,2\n284,2\n285,2\n286,2\n287,2\n288,2\n289,2\n290,2\n291,2\n292,2\n293,2\n294,2\n295,2\n296,2\n297,2\n298,2\n299,2\n300,2\n301,2\n302,2\n303,2\n304,2\n305,2\n306,2\n307,2\n308,2\n309,2\n310,2\n311,2\n312,2\n313,2\n314,2\n315,2\n316,2\n317,2\n318,2\n319,2\n320,2\n321,2\n322,2\n323,2\n324,2\n325,2\n326,2\n327,2\n328,2\n329,2\n330,2\n331,2\n332,2\n333,2\n334,2\n335,2\n336,2\n337,2\n338,2\n339,2\n340,2\n341,2\n342,2\n343,2\n","out/data/penguins/default/penguins_performance.txt":"s\th:m:s\tmax_rss\tmax_vms\tmax_uss\tmax_pss\tio_in\tio_out\tmean_load\tcpu_time\n1.7436\t0:00:01\t0\t0\t0\t0\t0.00\t0.00\t43.64\t0\n","software/Python_3.12.6_Clustering.yaml":"name: Python_3.12.6_Clustering\nchannels:\n  - conda-forge\n  - nodefaults\ndependencies:\n  - conda-forge::python=3.12.6\n  - conda-forge::scikit-learn\n  - conda-forge::pandas\n  - conda-forge::scipy\n  - conda-forge::numpy","software/R_4.4.1_Clustering.yaml":"name: R_4.4.1_Clustering\nchannels:\n  - conda-forge\n  - nodefaults\ndependencies:\n  - conda-forge::python=3.12.6\n  - conda-forge::r-base=4.4.1\n  - conda-forge::r-argparse\n  - conda-forge::r-readr\n  - conda-forge::r-dplyr\n  - conda-forge::r-mclust\n  - conda-forge::r-caret"}};
+const CFG = {endpoint:"https://rgw.science-it.uzh.ch",api:"S3",bucket:"omnibenchmark"};
+const RES_TYPES={output:{label:"output",color:"#4ec9b0"},report:{label:"report",color:"#d7a25a"},metric:{label:"metric",color:"#9a93f0"},performance:{label:"performance",color:"#6fb96f"},config:{label:"config",color:"#858585"},software:{label:"software",color:"#d07cad"},manifest:{label:"manifest",color:"#6fa8e0"}};
+const STAGE_ORDER=["data","distances","methods","metrics","collector","config","software","manifest"];
+const STAGE_LABEL={data:"data",distances:"distances",methods:"methods",metrics:"metrics",collector:"biometrics",config:"config",software:"software",manifest:"manifest"};
+function classifyKey(key){const segs=key.split("/");const fn=segs[segs.length-1];
+ if(key.startsWith("config/"))return{type:"config",stage:"config",dataset:"—",fn};
+ if(key.startsWith("software/"))return{type:"software",stage:"software",dataset:"—",fn};
+ if(key.startsWith("versions/"))return{type:"manifest",stage:"manifest",dataset:"—",fn};
+ const dataset=segs.includes("iris")?"iris":segs.includes("penguins")?"penguins":"—";
+ const KW=["data","distances","methods","metrics"];const last=[...segs].reverse().find(s=>KW.includes(s));
+ let type="output";if(fn.endsWith("_report.html")||fn.endsWith(".html"))type="report";else if(fn.endsWith("_performance.txt"))type="performance";else if(fn.endsWith(".metrics.txt"))type="metric";
+ let stage;if(fn.endsWith("_report.html")||fn==="biometrics.tsv"||fn.endsWith(".mapping.json"))stage="collector";else if(fn.endsWith(".features.csv")||fn.endsWith(".labels.csv"))stage="data";else if(fn.endsWith(".distances.csv"))stage="distances";else if(fn.endsWith(".clusters.csv"))stage="methods";else if(fn.endsWith(".metrics.txt"))stage="metrics";else stage=last||"data";
+ return{type,stage,dataset,fn};}
+function fmtSize(n){if(!n)return"0 B";const u=["B","KB","MB","GB"];let i=0,v=n;while(v>=1024&&i<u.length-1){v/=1024;i++;}return(i===0?v:v.toFixed(v<10?1:0))+" "+u[i];}
+function fmtDate(s){const d=new Date(s);return isNaN(d)?"":d.toISOString().slice(0,16).replace("T"," ");}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function bucketBase(c){return c.endpoint.replace(/\/+$/,"")+"/"+encodeURIComponent(c.bucket);}
+const recs=DATA.objects.map(o=>({...o,...classifyKey(o.key)}));
+function headHtml(){const host=CFG.endpoint.replace(/^https?:\/\//,"");return '<div class="res-head"><span class="res-title">'+esc(CFG.bucket)+'</span><span class="res-endpoint">'+esc(host)+'</span><span class="res-badge"><span class="dot"></span>live · latest</span><button class="hdr-btn res-reload">Reload</button></div>';}
+function renderNone(p){p.innerHTML='<div class="res-msg"><h4>No storage bucket declared</h4>This benchmark has no <code>storage</code> configuration, so there are no published result files to browse. Add <code>storage</code>, <code>storage_api</code> and <code>storage_bucket_name</code> (or a <code>storage: {endpoint, api, bucket_name}</code> block) and re-open this tab.</div>';}
+function renderLoading(p){p.innerHTML=headHtml()+'<div class="res-msg">Listing <code>omnibenchmark</code> over anonymous S3…</div>';}
+function renderError(p){const host="rgw.science-it.uzh.ch";p.innerHTML=headHtml()+'<div class="res-msg err"><h4>Couldn’t list the bucket from the browser</h4><code>Failed to fetch</code><br><br>A browser request to the gateway needs two things this endpoint may not yet provide:<br>&bull; <b>CORS</b> headers allowing this origin (<code>Access-Control-Allow-Origin</code>).<br>&bull; a <b>TLS certificate</b> whose SAN covers <code>'+host+'</code>.<br><br>The bucket itself is anonymously readable — verify with:<br><code>curl \''+esc(bucketBase(CFG))+'?list-type=2\'</code><br>or list it from the CLI with <code>ob remote files list</code>.</div>';}
+
+// ---- interactive loaded state ----
+function makeLoaded(pane){
+ const st={fStage:"all",fType:"all",selKey:null};
+ function draw(){
+  const byStage={},byType={};
+  for(const r of recs){byStage[r.stage]=(byStage[r.stage]||0)+1;byType[r.type]=(byType[r.type]||0)+1;}
+  // stage chips
+  let sc='<span class="res-flabel">stage</span><button class="res-chip'+(st.fStage==="all"?" on":"")+'" data-s="all">all <span class="c">'+recs.length+'</span></button>';
+  for(const s of STAGE_ORDER){if(!byStage[s])continue;sc+='<button class="res-chip'+(st.fStage===s?" on":"")+'" data-s="'+s+'">'+STAGE_LABEL[s]+' <span class="c">'+byStage[s]+'</span></button>';}
+  // type chips
+  let tc='<span class="res-flabel">type</span><button class="res-chip'+(st.fType==="all"?" on":"")+'" data-t="all">all <span class="c">'+recs.length+'</span></button>';
+  for(const t of Object.keys(RES_TYPES)){if(!byType[t])continue;tc+='<button class="res-chip'+(st.fType===t?" on":"")+'" data-t="'+t+'" style="color:'+RES_TYPES[t].color+'">'+RES_TYPES[t].label+' <span class="c">'+byType[t]+'</span></button>';}
+  const shown=recs.filter(r=>(st.fStage==="all"||r.stage===st.fStage)&&(st.fType==="all"||r.type===st.fType)).sort((a,b)=>a.key.localeCompare(b.key));
+  let rows="";for(const r of shown){const m=RES_TYPES[r.type];rows+='<tr data-key="'+esc(r.key).replace(/"/g,"&quot;")+'"'+(r.key===st.selKey?' class="sel"':'')+'><td class="res-key"><bdi>'+esc(r.key)+'</bdi></td><td class="res-ds">'+r.dataset+'</td><td><span class="res-type" style="color:'+m.color+'">'+m.label+'</span></td><td class="num">'+fmtSize(r.size)+'</td><td class="res-ds">'+fmtDate(r.modified)+'</td></tr>';}
+  if(!shown.length)rows='<tr><td colspan="5" style="padding:22px;color:var(--text-dim)">No files match this filter.</td></tr>';
+  pane.innerHTML=headHtml()
+   +'<div class="res-stages">'+sc+'</div>'
+   +'<div class="res-filters">'+tc+'</div>'
+   +'<div class="res-scroll"><table class="res-table"><thead><tr><th>Object key</th><th>Dataset</th><th>Type</th><th style="text-align:right">Size</th><th>Modified</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+   +'<div class="res-prev" id="res-prev" style="display:none"></div>';
+  pane.querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>{st.fStage=b.dataset.s;draw();});
+  pane.querySelectorAll("[data-t]").forEach(b=>b.onclick=()=>{st.fType=b.dataset.t;draw();});
+  pane.querySelectorAll("tbody tr[data-key]").forEach(tr=>tr.onclick=()=>preview(tr.dataset.key));
+  if(st.selKey&&shown.some(r=>r.key===st.selKey))preview(st.selKey,true);
+ }
+ function preview(key,keep){
+  const rec=recs.find(r=>r.key===key);if(!rec)return;st.selKey=key;
+  pane.querySelectorAll("tbody tr").forEach(tr=>tr.classList.toggle("sel",tr.dataset.key===key));
+  const box=pane.querySelector("#res-prev");box.style.display="";
+  const url=bucketBase(CFG)+"/"+key.split("/").map(encodeURIComponent).join("/");
+  const head='<div class="res-prev-head"><span class="fn">'+esc(rec.fn)+'</span><a href="'+url+'" target="_blank" rel="noopener">download ↗</a><span class="meta">'+fmtSize(rec.size)+' · md5 '+rec.etag.slice(0,10)+'</span></div>';
+  const c=DATA.content[key];
+  if(rec.size===0){box.innerHTML=head+'<div class="res-msg">Empty object (0 bytes) — a declared output the run produced with no content.</div>';return;}
+  if(c===undefined){box.innerHTML=head+'<div class="res-msg">'+fmtSize(rec.size)+' — not embedded in this demo; in obeditor this is fetched on click. Use <b>download</b>.</div>';return;}
+  let body;
+  if(rec.type==="report"||rec.fn.endsWith(".html")){body='<div class="res-prev-body"><iframe sandbox srcdoc="'+esc(c).replace(/"/g,"&quot;")+'"></iframe></div>';}
+  else if((rec.fn.endsWith(".csv")||rec.fn.endsWith(".tsv"))&&c.length<20000){const sep=rec.fn.endsWith(".tsv")?"\t":",";const lines=c.trim().split(/\r?\n/).slice(0,60).map(l=>l.split(sep));let h="<table><thead><tr>"+lines[0].map(x=>"<th>"+esc(x)+"</th>").join("")+"</tr></thead><tbody>"+lines.slice(1).map(r=>"<tr>"+r.map(x=>"<td>"+esc(x)+"</td>").join("")+"</tr>").join("")+"</tbody></table>";body='<div class="res-prev-body">'+h+'</div>';}
+  else{body='<div class="res-prev-body"><pre>'+esc(c)+'</pre></div>';}
+  box.innerHTML=head+body;
+ }
+ draw();
+}
+document.querySelectorAll('#results-pane').forEach(p=>{const s=p.dataset.state;s==="none"?renderNone(p):s==="loading"?renderLoading(p):s==="error"?renderError(p):makeLoaded(p);});
+</script>
+</body></html>
