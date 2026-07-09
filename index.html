@@ -428,6 +428,17 @@
     padding: 8px 20px; font-size: 12px; border-bottom: 1px solid var(--border);
   }
   #results-pane .res-dl { margin-left: auto; }
+  #results-pane .res-nav {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px;
+    padding: 8px 20px; font-size: 12px; border-bottom: 1px solid var(--border);
+  }
+  #results-pane .res-view { display: inline-flex; gap: 12px; }
+  #results-pane .res-view label { display: inline-flex; align-items: center; gap: 5px; color: var(--text-dim); cursor: pointer; }
+  #results-pane .res-view input { accent-color: var(--accent); margin: 0; }
+  #results-pane .res-crumb { color: var(--accent); cursor: pointer; text-decoration: none; }
+  #results-pane .res-crumb:hover { text-decoration: underline; }
+  #results-pane .res-nav .sep { color: var(--text-dim); margin: 0 6px; }
+  #results-pane .res-flatnote { color: var(--text-dim); }
   #results-pane .res-folder-dl {
     font-family: inherit; font-size: 10px; border: 1px solid var(--border);
     background: var(--bg); color: var(--text-dim); border-radius: 4px; padding: 1px 7px;
@@ -1158,7 +1169,7 @@ require(["vs/editor/editor.main"], () => {
     manifest:    { label: "manifest",    color: "#6fa8e0" },
   };
   const resState = { sig: null, loading: false, error: null, records: null,
-                     fType: "all", fStage: "all", prefix: "", selKey: null, meta: null };
+                     fType: "all", fStage: "all", prefix: "", view: "tree", selKey: null, meta: null };
 
   function readStorageConfig(yamlText) {
     let doc;
@@ -1314,7 +1325,7 @@ require(["vs/editor/editor.main"], () => {
     }
 
     const recs = resState.records || [];
-    const prefix = resState.prefix || "";
+    const prefix = (resState.view === "flat") ? "" : (resState.prefix || "");
     const underPrefix = prefix ? recs.filter(r => r.key.startsWith(prefix)) : recs;
     const passType  = r => resState.fType  === "all" || r.type  === resState.fType;
     const passStage = r => resState.fStage === "all" || r.stage === resState.fStage;
@@ -1372,25 +1383,31 @@ require(["vs/editor/editor.main"], () => {
     const matching = underPrefix.filter(r => passType(r) && passStage(r));
     const folders = new Map();               // name → { count, size }
     const files = [];
-    for (const r of matching) {
-      const rest = r.key.slice(prefix.length);
-      const slash = rest.indexOf("/");
-      if (slash === -1) { files.push(r); continue; }
-      const name = rest.slice(0, slash);
-      const f = folders.get(name) || { count: 0, size: 0 };
-      f.count++; f.size += r.size || 0; folders.set(name, f);
+    if (resState.view === "flat") {
+      files.push(...matching);
+    } else {
+      for (const r of matching) {
+        const rest = r.key.slice(prefix.length);
+        const slash = rest.indexOf("/");
+        if (slash === -1) { files.push(r); continue; }
+        const name = rest.slice(0, slash);
+        const f = folders.get(name) || { count: 0, size: 0 };
+        f.count++; f.size += r.size || 0; folders.set(name, f);
+      }
     }
 
     // Stats bar for the current folder under the active filters.
     const stats = '<div class="res-stats">' +
       '<span class="res-stat"><b>' + matching.length + '</b> object' + (matching.length === 1 ? '' : 's') +
-        ' here (recursive)</span>' +
+        (resState.view === "flat" ? '' : ' here (recursive)') + '</span>' +
       '<span class="res-stat"><b>' + fmtSize(sumSize(matching)) + '</b> total</span>' +
-      '<span class="res-stat">' + folders.size + ' folder' + (folders.size === 1 ? '' : 's') +
-        ' · ' + files.length + ' file' + (files.length === 1 ? '' : 's') + ' at this level</span>' +
+      (resState.view === "flat"
+        ? '<span class="res-stat">flat structure — all matching objects</span>'
+        : '<span class="res-stat">' + folders.size + ' folder' + (folders.size === 1 ? '' : 's') +
+          ' · ' + files.length + ' file' + (files.length === 1 ? '' : 's') + ' at this level</span>') +
       '</div>';
 
-    // Breadcrumb.
+    // Nav bar: view toggle (Folders / Flat), breadcrumb (tree only), download.
     let crumbs = '<a class="res-crumb" data-prefix="">root</a>';
     let acc = "";
     for (const seg of prefix.split("/").filter(Boolean)) {
@@ -1398,8 +1415,17 @@ require(["vs/editor/editor.main"], () => {
       crumbs += '<span class="sep">/</span><a class="res-crumb" data-prefix="' +
         escapeAttrR(acc) + '">' + escapeHtmlR(seg) + '</a>';
     }
-    const breadcrumb = '<div class="res-crumbs">' + crumbs +
-      '<button class="hdr-btn res-dl" id="res-dl-cur">⤓ Download folder (.tar.gz)</button></div>';
+    const viewToggle =
+      '<div class="res-view" role="radiogroup" aria-label="View mode">' +
+        '<label><input type="radio" name="resview" value="tree"' + (resState.view !== "flat" ? " checked" : "") + '> Folders</label>' +
+        '<label><input type="radio" name="resview" value="flat"' + (resState.view === "flat" ? " checked" : "") + '> Flat</label>' +
+      '</div>';
+    const navMid = (resState.view === "flat")
+      ? '<span class="res-flatnote">flat structure — all matching objects</span>'
+      : '<span class="res-crumbline">' + crumbs + '</span>';
+    const dlLabel = prefix ? "⤓ Download folder (.tar.gz)" : "⤓ Download all (.tar.gz)";
+    const breadcrumb = '<div class="res-nav">' + viewToggle + navMid +
+      '<button class="hdr-btn res-dl" id="res-dl-cur">' + dlLabel + '</button></div>';
 
     // Rows: folders first, then files.
     let rows = "";
@@ -1411,10 +1437,16 @@ require(["vs/editor/editor.main"], () => {
         '<td class="res-ds">' + f.count + ' item' + (f.count === 1 ? '' : 's') +
         ' <button class="res-folder-dl" data-folder="' + escapeAttrR(prefix + name + "/") + '">⤓ tar.gz</button></td></tr>';
     }
-    for (const r of files.sort((a, b) => a.fn.localeCompare(b.fn))) {
+    const fileSort = (resState.view === "flat")
+      ? (a, b) => a.key.localeCompare(b.key)
+      : (a, b) => a.fn.localeCompare(b.fn);
+    for (const r of files.sort(fileSort)) {
       const m = RES_TYPES[r.type] || { color: "var(--text)", label: r.type };
+      const nameCell = (resState.view === "flat")
+        ? '<bdi>' + escapeHtmlR(r.key) + '</bdi>'
+        : '<span class="res-ficon">📄</span><bdi>' + escapeHtmlR(r.fn) + '</bdi>';
       rows += '<tr data-key="' + escapeAttrR(r.key) + '"' + (r.key === resState.selKey ? ' class="sel"' : "") + '>' +
-        '<td class="res-key"><span class="res-ficon">📄</span><bdi>' + escapeHtmlR(r.fn) + '</bdi></td>' +
+        '<td class="res-key">' + nameCell + '</td>' +
         '<td class="res-ds">' + r.dataset + '</td>' +
         '<td><span class="res-type" style="color:' + m.color + '">' + m.label + '</span></td>' +
         '<td class="num">' + fmtSize(r.size) + '</td>' +
@@ -1443,6 +1475,8 @@ require(["vs/editor/editor.main"], () => {
     if (dlCur) dlCur.addEventListener("click", () => downloadFolderTarGz(prefix, cfg));
     pane.querySelectorAll(".res-folder-dl").forEach(b =>
       b.addEventListener("click", (e) => { e.stopPropagation(); downloadFolderTarGz(b.dataset.folder, cfg); }));
+    pane.querySelectorAll('input[name="resview"]').forEach(inp =>
+      inp.addEventListener("change", () => { resState.view = inp.value; resState.selKey = null; renderResults(cfg); }));
     pane.querySelectorAll("#res-rows tr[data-key]").forEach(tr =>
       tr.addEventListener("click", () => openResultPreview(cfg, tr.dataset.key)));
     if (resState.selKey) {
