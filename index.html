@@ -423,7 +423,34 @@
   #results-pane .res-prev-body th, #results-pane .res-prev-body td { border: 1px solid var(--border); padding: 3px 8px; white-space: nowrap; }
   #results-pane .res-prev-head a, #results-pane .res-head a { color: var(--accent); text-decoration: none; }
   #results-pane .res-prev-head a:hover { text-decoration: underline; }
-  #results-pane .res-crumbs { padding: 8px 20px; font-size: 12px; border-bottom: 1px solid var(--border); }
+  #results-pane .res-crumbs {
+    display: flex; align-items: center; flex-wrap: wrap;
+    padding: 8px 20px; font-size: 12px; border-bottom: 1px solid var(--border);
+  }
+  #results-pane .res-dl { margin-left: auto; }
+  #results-pane .res-nav {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px;
+    padding: 8px 20px; font-size: 12px; border-bottom: 1px solid var(--border);
+  }
+  #results-pane .res-view { display: inline-flex; gap: 12px; }
+  #results-pane .res-view label { display: inline-flex; align-items: center; gap: 5px; color: var(--text-dim); cursor: pointer; }
+  #results-pane .res-view input { accent-color: var(--accent); margin: 0; }
+  #results-pane .res-crumb { color: var(--accent); cursor: pointer; text-decoration: none; }
+  #results-pane .res-crumb:hover { text-decoration: underline; }
+  #results-pane .res-nav .sep { color: var(--text-dim); margin: 0 6px; }
+  #results-pane .res-flatnote { color: var(--text-dim); }
+  #results-pane .res-folder-dl {
+    font-family: inherit; font-size: 10px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text-dim); border-radius: 4px; padding: 1px 7px;
+    cursor: pointer; margin-left: 8px;
+  }
+  #results-pane .res-folder-dl:hover { border-color: var(--accent); color: #fff; }
+  .res-dl-toast {
+    position: fixed; bottom: 18px; right: 18px; z-index: 60;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 14px; font-size: 12px; color: var(--text); max-width: 360px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.4);
+  }
   #results-pane .res-crumbs a { color: var(--accent); cursor: pointer; text-decoration: none; }
   #results-pane .res-crumbs a:hover { text-decoration: underline; }
   #results-pane .res-crumbs .sep { color: var(--text-dim); margin: 0 6px; }
@@ -1142,7 +1169,7 @@ require(["vs/editor/editor.main"], () => {
     manifest:    { label: "manifest",    color: "#6fa8e0" },
   };
   const resState = { sig: null, loading: false, error: null, records: null,
-                     fType: "all", fStage: "all", prefix: "", selKey: null, meta: null };
+                     fType: "all", fStage: "all", prefix: "", view: "tree", selKey: null, meta: null };
 
   function readStorageConfig(yamlText) {
     let doc;
@@ -1298,7 +1325,7 @@ require(["vs/editor/editor.main"], () => {
     }
 
     const recs = resState.records || [];
-    const prefix = resState.prefix || "";
+    const prefix = (resState.view === "flat") ? "" : (resState.prefix || "");
     const underPrefix = prefix ? recs.filter(r => r.key.startsWith(prefix)) : recs;
     const passType  = r => resState.fType  === "all" || r.type  === resState.fType;
     const passStage = r => resState.fStage === "all" || r.stage === resState.fStage;
@@ -1356,25 +1383,31 @@ require(["vs/editor/editor.main"], () => {
     const matching = underPrefix.filter(r => passType(r) && passStage(r));
     const folders = new Map();               // name → { count, size }
     const files = [];
-    for (const r of matching) {
-      const rest = r.key.slice(prefix.length);
-      const slash = rest.indexOf("/");
-      if (slash === -1) { files.push(r); continue; }
-      const name = rest.slice(0, slash);
-      const f = folders.get(name) || { count: 0, size: 0 };
-      f.count++; f.size += r.size || 0; folders.set(name, f);
+    if (resState.view === "flat") {
+      files.push(...matching);
+    } else {
+      for (const r of matching) {
+        const rest = r.key.slice(prefix.length);
+        const slash = rest.indexOf("/");
+        if (slash === -1) { files.push(r); continue; }
+        const name = rest.slice(0, slash);
+        const f = folders.get(name) || { count: 0, size: 0 };
+        f.count++; f.size += r.size || 0; folders.set(name, f);
+      }
     }
 
     // Stats bar for the current folder under the active filters.
     const stats = '<div class="res-stats">' +
       '<span class="res-stat"><b>' + matching.length + '</b> object' + (matching.length === 1 ? '' : 's') +
-        ' here (recursive)</span>' +
+        (resState.view === "flat" ? '' : ' here (recursive)') + '</span>' +
       '<span class="res-stat"><b>' + fmtSize(sumSize(matching)) + '</b> total</span>' +
-      '<span class="res-stat">' + folders.size + ' folder' + (folders.size === 1 ? '' : 's') +
-        ' · ' + files.length + ' file' + (files.length === 1 ? '' : 's') + ' at this level</span>' +
+      (resState.view === "flat"
+        ? '<span class="res-stat">flat structure — all matching objects</span>'
+        : '<span class="res-stat">' + folders.size + ' folder' + (folders.size === 1 ? '' : 's') +
+          ' · ' + files.length + ' file' + (files.length === 1 ? '' : 's') + ' at this level</span>') +
       '</div>';
 
-    // Breadcrumb.
+    // Nav bar: view toggle (Folders / Flat), breadcrumb (tree only), download.
     let crumbs = '<a class="res-crumb" data-prefix="">root</a>';
     let acc = "";
     for (const seg of prefix.split("/").filter(Boolean)) {
@@ -1382,7 +1415,17 @@ require(["vs/editor/editor.main"], () => {
       crumbs += '<span class="sep">/</span><a class="res-crumb" data-prefix="' +
         escapeAttrR(acc) + '">' + escapeHtmlR(seg) + '</a>';
     }
-    const breadcrumb = '<div class="res-crumbs">' + crumbs + '</div>';
+    const viewToggle =
+      '<div class="res-view" role="radiogroup" aria-label="View mode">' +
+        '<label><input type="radio" name="resview" value="tree"' + (resState.view !== "flat" ? " checked" : "") + '> Folders</label>' +
+        '<label><input type="radio" name="resview" value="flat"' + (resState.view === "flat" ? " checked" : "") + '> Flat</label>' +
+      '</div>';
+    const navMid = (resState.view === "flat")
+      ? '<span class="res-flatnote">flat structure — all matching objects</span>'
+      : '<span class="res-crumbline">' + crumbs + '</span>';
+    const dlLabel = prefix ? "⤓ Download folder (.tar.gz)" : "⤓ Download all (.tar.gz)";
+    const breadcrumb = '<div class="res-nav">' + viewToggle + navMid +
+      '<button class="hdr-btn res-dl" id="res-dl-cur">' + dlLabel + '</button></div>';
 
     // Rows: folders first, then files.
     let rows = "";
@@ -1391,12 +1434,19 @@ require(["vs/editor/editor.main"], () => {
         '<td class="res-key"><span class="res-ficon">📁</span><bdi>' + escapeHtmlR(name) + '</bdi></td>' +
         '<td class="res-ds">—</td><td></td>' +
         '<td class="num">' + fmtSize(f.size) + '</td>' +
-        '<td class="res-ds">' + f.count + ' item' + (f.count === 1 ? '' : 's') + '</td></tr>';
+        '<td class="res-ds">' + f.count + ' item' + (f.count === 1 ? '' : 's') +
+        ' <button class="res-folder-dl" data-folder="' + escapeAttrR(prefix + name + "/") + '">⤓ tar.gz</button></td></tr>';
     }
-    for (const r of files.sort((a, b) => a.fn.localeCompare(b.fn))) {
+    const fileSort = (resState.view === "flat")
+      ? (a, b) => a.key.localeCompare(b.key)
+      : (a, b) => a.fn.localeCompare(b.fn);
+    for (const r of files.sort(fileSort)) {
       const m = RES_TYPES[r.type] || { color: "var(--text)", label: r.type };
+      const nameCell = (resState.view === "flat")
+        ? '<bdi>' + escapeHtmlR(r.key) + '</bdi>'
+        : '<span class="res-ficon">📄</span><bdi>' + escapeHtmlR(r.fn) + '</bdi>';
       rows += '<tr data-key="' + escapeAttrR(r.key) + '"' + (r.key === resState.selKey ? ' class="sel"' : "") + '>' +
-        '<td class="res-key"><span class="res-ficon">📄</span><bdi>' + escapeHtmlR(r.fn) + '</bdi></td>' +
+        '<td class="res-key">' + nameCell + '</td>' +
         '<td class="res-ds">' + r.dataset + '</td>' +
         '<td><span class="res-type" style="color:' + m.color + '">' + m.label + '</span></td>' +
         '<td class="num">' + fmtSize(r.size) + '</td>' +
@@ -1421,6 +1471,12 @@ require(["vs/editor/editor.main"], () => {
       a.addEventListener("click", () => { resState.prefix = a.dataset.prefix; resState.selKey = null; renderResults(cfg); }));
     pane.querySelectorAll("#res-rows tr.res-folder").forEach(tr =>
       tr.addEventListener("click", () => { resState.prefix = tr.dataset.folder; resState.selKey = null; renderResults(cfg); }));
+    const dlCur = document.getElementById("res-dl-cur");
+    if (dlCur) dlCur.addEventListener("click", () => downloadFolderTarGz(prefix, cfg));
+    pane.querySelectorAll(".res-folder-dl").forEach(b =>
+      b.addEventListener("click", (e) => { e.stopPropagation(); downloadFolderTarGz(b.dataset.folder, cfg); }));
+    pane.querySelectorAll('input[name="resview"]').forEach(inp =>
+      inp.addEventListener("change", () => { resState.view = inp.value; resState.selKey = null; renderResults(cfg); }));
     pane.querySelectorAll("#res-rows tr[data-key]").forEach(tr =>
       tr.addEventListener("click", () => openResultPreview(cfg, tr.dataset.key)));
     if (resState.selKey) {
@@ -1503,6 +1559,116 @@ require(["vs/editor/editor.main"], () => {
 
   function escapeHtmlR(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
   function escapeAttrR(s) { return escapeHtmlR(s).replace(/"/g, "&quot;"); }
+
+  // ── Folder download (.tar.gz) ─────────────────────────────────────────────
+  // Build a USTAR tar in the browser and gzip it with CompressionStream — no
+  // library, no server. Files are fetched over anonymous S3 GET. Memory-bound,
+  // so large folders are gated behind a confirm().
+  function tarField(buf, str, off, len) {
+    for (let i = 0; i < len; i++) buf[off + i] = 0;
+    const b = new TextEncoder().encode(str);
+    for (let i = 0; i < b.length && i < len; i++) buf[off + i] = b[i];
+  }
+  // USTAR name/prefix split: full path = prefix + "/" + name, name ≤100, prefix ≤155.
+  function tarSplitName(p) {
+    if (p.length <= 100) return [p, ""];
+    let best = null;
+    for (let i = 0; i < p.length; i++) {
+      if (p[i] !== "/") continue;
+      const pre = p.slice(0, i), suf = p.slice(i + 1);
+      if (suf.length <= 100 && pre.length <= 155) best = [suf, pre];
+    }
+    return best || [p.slice(-100), p.slice(0, 155)];
+  }
+  function tarHeader(path, size) {
+    const buf = new Uint8Array(512);
+    const [name, prefix] = tarSplitName(path);
+    tarField(buf, name, 0, 100);
+    tarField(buf, "0000644", 100, 8);
+    tarField(buf, "0000000", 108, 8);
+    tarField(buf, "0000000", 116, 8);
+    tarField(buf, size.toString(8).padStart(11, "0"), 124, 12);
+    tarField(buf, Math.floor(Date.now() / 1000).toString(8).padStart(11, "0"), 136, 12);
+    for (let i = 148; i < 156; i++) buf[i] = 0x20;   // checksum placeholder (spaces)
+    buf[156] = 0x30;                                  // typeflag '0' = regular file
+    tarField(buf, "ustar", 257, 6);
+    buf[263] = 0x30; buf[264] = 0x30;                 // version "00"
+    if (prefix) tarField(buf, prefix, 345, 155);
+    let sum = 0; for (let i = 0; i < 512; i++) sum += buf[i];
+    tarField(buf, sum.toString(8).padStart(6, "0"), 148, 7);
+    buf[154] = 0; buf[155] = 0x20;
+    return buf;
+  }
+  async function downloadFolderTarGz(prefix, cfg) {
+    const recs = (resState.records || []).filter(r =>
+      r.key.startsWith(prefix) &&
+      (resState.fType === "all" || r.type === resState.fType) &&
+      (resState.fStage === "all" || r.stage === resState.fStage));
+    if (!recs.length) { alert("No files under this folder match the current filters."); return; }
+    const total = recs.reduce((s, r) => s + (r.size || 0), 0);
+    const HARD_LIMIT = 2 * 1024 ** 3;   // 2 GiB — in-browser gzip is capped here
+    if (total > HARD_LIMIT) {
+      alert("This selection is " + fmtSize(total) + ", over the 2 GB in-browser limit — gzipping it in " +
+        "the tab would likely run out of memory. Download a smaller subfolder (or narrow the type/stage " +
+        "filters), or use the CLI:\n\n  ob remote files download <benchmark.yaml>");
+      return;
+    }
+    if (total > 1.5e9 || recs.length > 3000) {
+      if (!confirm("This downloads " + recs.length + " files (" + fmtSize(total) +
+        ") into browser memory and compresses them locally. Large folders can be slow or run out " +
+        "of memory. Continue?")) return;
+    }
+    const toast = document.createElement("div");
+    toast.className = "res-dl-toast";
+    document.body.appendChild(toast);
+    const msg = m => { toast.textContent = m; };
+    msg("Preparing " + recs.length + " files…");
+
+    const parts = new Array(recs.length);
+    let done = 0, bytes = 0, failed = 0, idx = 0;
+    async function worker() {
+      while (idx < recs.length) {
+        const i = idx++, r = recs[i];
+        try {
+          const res = await fetch(objectUrl(cfg, r.key));
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const data = new Uint8Array(await res.arrayBuffer());
+          parts[i] = { name: r.key.slice(prefix.length) || r.fn, data };
+          bytes += data.length;
+        } catch (_) { failed++; parts[i] = null; }
+        done++;
+        if (done % 4 === 0 || done === recs.length)
+          msg("Fetching " + done + "/" + recs.length + " · " + fmtSize(bytes) + (failed ? " · " + failed + " failed" : ""));
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(6, recs.length) }, worker));
+
+    msg("Packing " + fmtSize(bytes) + "…");
+    const chunks = [];
+    for (const p of parts) {
+      if (!p) continue;
+      chunks.push(tarHeader(p.name, p.data.length), p.data);
+      const rem = p.data.length % 512;
+      if (rem) chunks.push(new Uint8Array(512 - rem));
+    }
+    chunks.push(new Uint8Array(1024));               // two zero blocks = end of archive
+    const tar = new Blob(chunks);
+
+    let out = tar, ext = "tar";
+    if ("CompressionStream" in window) {
+      msg("Compressing (gzip)…");
+      out = await new Response(tar.stream().pipeThrough(new CompressionStream("gzip"))).blob();
+      ext = "tar.gz";
+    }
+    const base = prefix.replace(/\/+$/, "").split("/").pop() || cfg.bucket;
+    const url = URL.createObjectURL(out);
+    const a = document.createElement("a");
+    a.href = url; a.download = base + "." + ext;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 15000);
+    msg("Saved " + base + "." + ext + " · " + fmtSize(out.size) + (failed ? " · " + failed + " failed" : ""));
+    setTimeout(() => toast.remove(), 6000);
+  }
 
   // Filter footer buttons
   document.getElementById("filter-back").addEventListener("click", () => {
