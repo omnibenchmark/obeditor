@@ -423,6 +423,38 @@
   #results-pane .res-prev-body th, #results-pane .res-prev-body td { border: 1px solid var(--border); padding: 3px 8px; white-space: nowrap; }
   #results-pane .res-prev-head a, #results-pane .res-head a { color: var(--accent); text-decoration: none; }
   #results-pane .res-prev-head a:hover { text-decoration: underline; }
+  #results-pane .res-crumbs { padding: 8px 20px; font-size: 12px; border-bottom: 1px solid var(--border); }
+  #results-pane .res-crumbs a { color: var(--accent); cursor: pointer; text-decoration: none; }
+  #results-pane .res-crumbs a:hover { text-decoration: underline; }
+  #results-pane .res-crumbs .sep { color: var(--text-dim); margin: 0 6px; }
+  #results-pane tr.res-folder { cursor: pointer; }
+  #results-pane tr.res-folder .res-key bdi { font-weight: 600; color: var(--text); }
+  #results-pane .res-ficon { margin-right: 6px; }
+  #results-pane .res-prev-props {
+    padding: 8px 14px; border-bottom: 1px solid var(--border);
+    font-size: 11px; color: var(--text-dim); display: flex; flex-direction: column; gap: 6px;
+  }
+  #results-pane .res-prev-props .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  #results-pane .res-prev-props .k {
+    color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; font-size: 9.5px;
+  }
+  #results-pane .res-prev-props .v { color: var(--text); margin-right: 10px; }
+  #results-pane .res-prev-props code.res-fullkey {
+    font-family: ui-monospace, monospace; color: var(--text); word-break: break-all;
+    background: var(--bg); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border);
+    flex: 1; min-width: 0;
+  }
+  #results-pane .res-copykey {
+    font-family: inherit; font-size: 10px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text-dim); border-radius: 4px; padding: 2px 8px; cursor: pointer;
+  }
+  #results-pane .res-copykey:hover { border-color: var(--accent); color: #fff; }
+  #results-pane .res-chip .sz { opacity: .5; margin-left: 5px; font-variant-numeric: tabular-nums; }
+  #results-pane .res-stats {
+    display: flex; gap: 18px; flex-wrap: wrap; padding: 8px 20px;
+    font-size: 11px; color: var(--text-dim); border-bottom: 1px solid var(--border);
+  }
+  #results-pane .res-stats b { color: var(--text); font-variant-numeric: tabular-nums; }
 
   /* ── Header buttons ── */
   .hdr-btn {
@@ -1110,7 +1142,7 @@ require(["vs/editor/editor.main"], () => {
     manifest:    { label: "manifest",    color: "#6fa8e0" },
   };
   const resState = { sig: null, loading: false, error: null, records: null,
-                     fType: "all", fStage: "all", selKey: null };
+                     fType: "all", fStage: "all", prefix: "", selKey: null, meta: null };
 
   function readStorageConfig(yamlText) {
     let doc;
@@ -1126,26 +1158,43 @@ require(["vs/editor/editor.main"], () => {
     return null;
   }
 
-  function classifyKey(key) {
+  // Pull stage ids and dataset names out of the benchmark YAML so the results
+  // browser can classify object keys for THIS benchmark, not a hardcoded demo.
+  function readBenchmarkMeta(yamlText) {
+    let doc;
+    try { doc = jsyaml.load(yamlText); } catch (_) { doc = null; }
+    const stages = [];
+    const datasets = new Set();
+    if (doc && Array.isArray(doc.stages)) {
+      for (const st of doc.stages) {
+        if (st && st.id != null) stages.push(String(st.id));
+        
+        const isRoot = !st || !st.inputs || (Array.isArray(st.inputs) && st.inputs.length === 0);
+        if (isRoot) for (const m of (st && st.modules) || []) {
+          if (m && m.id != null) datasets.add(String(m.id));
+        }
+      }
+    }
+    return { stages, stageSet: new Set(stages), datasets: [...datasets] };
+  }
+
+  // Classify an object key using the stage ids + dataset names from `meta`.
+  function classifyKey(key, meta) {
     const segs = key.split("/");
     const fn = segs[segs.length - 1];
     if (key.startsWith("config/"))   return { type: "config",   stage: "config",   dataset: "—", fn };
     if (key.startsWith("software/")) return { type: "software", stage: "software", dataset: "—", fn };
     if (key.startsWith("versions/")) return { type: "manifest", stage: "manifest", dataset: "—", fn };
-    const dataset = segs.includes("iris") ? "iris" : segs.includes("penguins") ? "penguins" : "—";
-    const STAGE_KW = ["data", "distances", "methods", "metrics"];
-    const lastStage = [...segs].reverse().find(s => STAGE_KW.includes(s));
+    // Stage = the deepest path segment that matches a declared stage id.
+    const stage = [...segs].reverse().find(s => meta.stageSet.has(s)) || "—";
+    // Dataset = a declared dataset name the filename is built from.
+    const dataset = meta.datasets.find(d =>
+      fn === d || fn.startsWith(d + ".") || fn.startsWith(d + "_") || segs.includes(d)) || "—";
+    // Type from filename conventions (best-effort, benchmark-agnostic).
     let type = "output";
-    if (fn.endsWith("_report.html") || fn.endsWith(".html")) type = "report";
-    else if (fn.endsWith("_performance.txt")) type = "performance";
-    else if (fn.endsWith(".metrics.txt")) type = "metric";
-    let stage;
-    if (fn.endsWith("_report.html") || fn === "biometrics.tsv" || fn.endsWith(".mapping.json")) stage = "collector";
-    else if (fn.endsWith(".features.csv") || fn.endsWith(".labels.csv")) stage = "data";
-    else if (fn.endsWith(".distances.csv")) stage = "distances";
-    else if (fn.endsWith(".clusters.csv")) stage = "methods";
-    else if (fn.endsWith(".metrics.txt")) stage = "metrics";
-    else stage = lastStage || "data";
+    if (fn.endsWith(".html")) type = "report";
+    else if (/(^|[._-])perf(ormance)?\.(txt|json|tsv)$/i.test(fn)) type = "performance";
+    else if (/metrics?\.(json|txt|tsv|csv)$/i.test(fn)) type = "metric";
     return { type, stage, dataset, fn };
   }
 
@@ -1156,7 +1205,7 @@ require(["vs/editor/editor.main"], () => {
     return bucketBase(cfg) + "/" + key.split("/").map(encodeURIComponent).join("/");
   }
 
-  async function listBucket(cfg) {
+  async function listBucket(cfg, meta) {
     const base = bucketBase(cfg);
     const nsGet = (root, name) => root.getElementsByTagNameNS("*", name);
     const out = [];
@@ -1181,7 +1230,7 @@ require(["vs/editor/editor.main"], () => {
       const trunc = (nsGet(xml, "IsTruncated")[0] || {}).textContent === "true";
       token = trunc ? (nsGet(xml, "NextContinuationToken")[0] || {}).textContent : null;
     } while (token && ++guard < 50);
-    return out.map(o => ({ ...o, ...classifyKey(o.key) }));
+    return out.map(o => ({ ...o, ...classifyKey(o.key, meta) }));
   }
 
   function fmtSize(n) {
@@ -1194,7 +1243,10 @@ require(["vs/editor/editor.main"], () => {
 
   function showResults() {
     const pane = document.getElementById("results-pane");
-    const cfg = readStorageConfig(yamlEditor.getValue());
+    const yamlText = yamlEditor.getValue();
+    const cfg = readStorageConfig(yamlText);
+    const meta = readBenchmarkMeta(yamlText);
+    resState.meta = meta;
     if (!cfg || !cfg.endpoint || !cfg.bucket) {
       resState.sig = null; resState.records = null;
       pane.innerHTML = '<div class="res-msg"><h4>No storage bucket declared</h4>' +
@@ -1204,12 +1256,12 @@ require(["vs/editor/editor.main"], () => {
         'block) and re-open this tab.</div>';
       return;
     }
-    const sig = cfg.endpoint + "|" + cfg.bucket;
+    const sig = cfg.endpoint + "|" + cfg.bucket + "|" + meta.stages.join(",");
     if (resState.sig === sig && (resState.records || resState.error)) { renderResults(cfg); return; }
     resState.sig = sig; resState.loading = true; resState.error = null;
-    resState.records = null; resState.selKey = null;
+    resState.records = null; resState.selKey = null; resState.fStage = "all"; resState.prefix = "";
     renderResults(cfg);
-    listBucket(cfg).then(recs => {
+    listBucket(cfg, meta).then(recs => {
       if (resState.sig !== sig) return;
       resState.loading = false; resState.records = recs; renderResults(cfg);
     }).catch(err => {
@@ -1246,40 +1298,130 @@ require(["vs/editor/editor.main"], () => {
     }
 
     const recs = resState.records || [];
-    const byType = {}; for (const r of recs) byType[r.type] = (byType[r.type] || 0) + 1;
+    const prefix = resState.prefix || "";
+    const underPrefix = prefix ? recs.filter(r => r.key.startsWith(prefix)) : recs;
+    const passType  = r => resState.fType  === "all" || r.type  === resState.fType;
+    const passStage = r => resState.fStage === "all" || r.stage === resState.fStage;
+    const sumSize   = arr => arr.reduce((s, r) => s + (r.size || 0), 0);
+
+    // Faceted stats: counts + sizes are computed over the CURRENT folder, and
+    // each facet is counted with the OTHER facet's filter applied.
+    const byType = {}, byTypeSize = {};
+    for (const r of underPrefix) if (passStage(r)) {
+      byType[r.type] = (byType[r.type] || 0) + 1;
+      byTypeSize[r.type] = (byTypeSize[r.type] || 0) + (r.size || 0);
+    }
+    const byStage = {}, byStageSize = {};
+    for (const r of underPrefix) if (passType(r)) {
+      byStage[r.stage] = (byStage[r.stage] || 0) + 1;
+      byStageSize[r.stage] = (byStageSize[r.stage] || 0) + (r.size || 0);
+    }
+    const allTypeRecs  = underPrefix.filter(passStage);
+    const allStageRecs = underPrefix.filter(passType);
+
+    // Type filter chips (count + size in the current folder).
     let chips = '<button class="res-chip' + (resState.fType === "all" ? " on" : "") +
-      '" data-t="all">all <span class="c">' + recs.length + '</span></button>';
+      '" data-t="all">all <span class="c">' + allTypeRecs.length + '</span>' +
+      '<span class="sz">' + fmtSize(sumSize(allTypeRecs)) + '</span></button>';
     for (const t of Object.keys(RES_TYPES)) {
       if (!byType[t]) continue;
       chips += '<button class="res-chip' + (resState.fType === t ? " on" : "") + '" data-t="' + t +
         '" style="color:' + RES_TYPES[t].color + '">' + RES_TYPES[t].label +
-        ' <span class="c">' + byType[t] + '</span></button>';
+        ' <span class="c">' + byType[t] + '</span>' +
+        '<span class="sz">' + fmtSize(byTypeSize[t]) + '</span></button>';
     }
-    const filters = '<div class="res-filters">' + chips + '</div>';
+    const typeFilters = '<div class="res-filters res-type-filters">' + chips + '</div>';
 
-    const shown = recs.filter(r => resState.fType === "all" || r.type === resState.fType)
-                      .sort((a, b) => a.key.localeCompare(b.key));
+    // Stage filter chips — ids/order from the benchmark YAML (count + size).
+    const stageOrder = (resState.meta && resState.meta.stages) || [];
+    const orderedStages = [
+      ...stageOrder.filter(s => byStage[s]),
+      ...Object.keys(byStage).filter(s => !stageOrder.includes(s)).sort(),
+    ];
+    let sChips = '<button class="res-chip' + (resState.fStage === "all" ? " on" : "") +
+      '" data-s="all">all stages <span class="c">' + allStageRecs.length + '</span>' +
+      '<span class="sz">' + fmtSize(sumSize(allStageRecs)) + '</span></button>';
+    for (const s of orderedStages) {
+      sChips += '<button class="res-chip' + (resState.fStage === s ? " on" : "") +
+        '" data-s="' + escapeAttrR(s) + '">' + escapeHtmlR(s) +
+        ' <span class="c">' + byStage[s] + '</span>' +
+        '<span class="sz">' + fmtSize(byStageSize[s]) + '</span></button>';
+    }
+    const stageFilters = orderedStages.length > 1
+      ? '<div class="res-filters res-stage-filters">' + sChips + '</div>' : "";
+    const filters = typeFilters + stageFilters;
+
+    // ── Finder-style navigation: immediate children of the current prefix among
+    //    files passing both active filters. Folders descend; files open preview.
+    const matching = underPrefix.filter(r => passType(r) && passStage(r));
+    const folders = new Map();               // name → { count, size }
+    const files = [];
+    for (const r of matching) {
+      const rest = r.key.slice(prefix.length);
+      const slash = rest.indexOf("/");
+      if (slash === -1) { files.push(r); continue; }
+      const name = rest.slice(0, slash);
+      const f = folders.get(name) || { count: 0, size: 0 };
+      f.count++; f.size += r.size || 0; folders.set(name, f);
+    }
+
+    // Stats bar for the current folder under the active filters.
+    const stats = '<div class="res-stats">' +
+      '<span class="res-stat"><b>' + matching.length + '</b> object' + (matching.length === 1 ? '' : 's') +
+        ' here (recursive)</span>' +
+      '<span class="res-stat"><b>' + fmtSize(sumSize(matching)) + '</b> total</span>' +
+      '<span class="res-stat">' + folders.size + ' folder' + (folders.size === 1 ? '' : 's') +
+        ' · ' + files.length + ' file' + (files.length === 1 ? '' : 's') + ' at this level</span>' +
+      '</div>';
+
+    // Breadcrumb.
+    let crumbs = '<a class="res-crumb" data-prefix="">root</a>';
+    let acc = "";
+    for (const seg of prefix.split("/").filter(Boolean)) {
+      acc += seg + "/";
+      crumbs += '<span class="sep">/</span><a class="res-crumb" data-prefix="' +
+        escapeAttrR(acc) + '">' + escapeHtmlR(seg) + '</a>';
+    }
+    const breadcrumb = '<div class="res-crumbs">' + crumbs + '</div>';
+
+    // Rows: folders first, then files.
     let rows = "";
-    for (const r of shown) {
-      const m = RES_TYPES[r.type];
+    for (const [name, f] of [...folders.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+      rows += '<tr class="res-folder" data-folder="' + escapeAttrR(prefix + name + "/") + '">' +
+        '<td class="res-key"><span class="res-ficon">📁</span><bdi>' + escapeHtmlR(name) + '</bdi></td>' +
+        '<td class="res-ds">—</td><td></td>' +
+        '<td class="num">' + fmtSize(f.size) + '</td>' +
+        '<td class="res-ds">' + f.count + ' item' + (f.count === 1 ? '' : 's') + '</td></tr>';
+    }
+    for (const r of files.sort((a, b) => a.fn.localeCompare(b.fn))) {
+      const m = RES_TYPES[r.type] || { color: "var(--text)", label: r.type };
       rows += '<tr data-key="' + escapeAttrR(r.key) + '"' + (r.key === resState.selKey ? ' class="sel"' : "") + '>' +
-        '<td class="res-key"><bdi>' + escapeHtmlR(r.key) + '</bdi></td>' +
+        '<td class="res-key"><span class="res-ficon">📄</span><bdi>' + escapeHtmlR(r.fn) + '</bdi></td>' +
         '<td class="res-ds">' + r.dataset + '</td>' +
         '<td><span class="res-type" style="color:' + m.color + '">' + m.label + '</span></td>' +
         '<td class="num">' + fmtSize(r.size) + '</td>' +
         '<td class="res-ds">' + fmtDate(r.modified) + '</td></tr>';
     }
+    if (!rows) rows = '<tr><td colspan="5" class="res-ds" style="padding:16px 12px">' +
+      'Nothing here matches the current filters.</td></tr>';
+
     const table =
       '<div class="res-scroll"><table class="res-table"><thead><tr>' +
-      '<th>Object key</th><th>Dataset</th><th>Type</th><th style="text-align:right">Size</th><th>Modified</th>' +
+      '<th>Name</th><th>Dataset</th><th>Type</th><th style="text-align:right">Size</th><th>Modified</th>' +
       '</tr></thead><tbody id="res-rows">' + rows + '</tbody></table></div>';
     const prev = '<div class="res-prev" id="res-prev" style="display:none"></div>';
 
-    pane.innerHTML = head + filters + table + prev;
+    pane.innerHTML = head + filters + breadcrumb + stats + table + prev;
     wireReload(cfg);
-    pane.querySelectorAll(".res-chip").forEach(c =>
-      c.addEventListener("click", () => { resState.fType = c.dataset.t; renderResults(cfg); }));
-    pane.querySelectorAll("#res-rows tr").forEach(tr =>
+    pane.querySelectorAll(".res-type-filters .res-chip").forEach(c =>
+      c.addEventListener("click", () => { resState.fType = c.dataset.t; resState.prefix = ""; renderResults(cfg); }));
+    pane.querySelectorAll(".res-stage-filters .res-chip").forEach(c =>
+      c.addEventListener("click", () => { resState.fStage = c.dataset.s; resState.prefix = ""; renderResults(cfg); }));
+    pane.querySelectorAll(".res-crumb").forEach(a =>
+      a.addEventListener("click", () => { resState.prefix = a.dataset.prefix; resState.selKey = null; renderResults(cfg); }));
+    pane.querySelectorAll("#res-rows tr.res-folder").forEach(tr =>
+      tr.addEventListener("click", () => { resState.prefix = tr.dataset.folder; resState.selKey = null; renderResults(cfg); }));
+    pane.querySelectorAll("#res-rows tr[data-key]").forEach(tr =>
       tr.addEventListener("click", () => openResultPreview(cfg, tr.dataset.key)));
     if (resState.selKey) {
       const r = recs.find(x => x.key === resState.selKey);
@@ -1303,11 +1445,26 @@ require(["vs/editor/editor.main"], () => {
     const box = document.getElementById("res-prev");
     if (!box) return;
     box.style.display = "";
+    box.onclick = (e) => {
+      const b = e.target.closest(".res-copykey");
+      if (!b) return;
+      navigator.clipboard.writeText(b.dataset.key);
+      b.textContent = "copied"; setTimeout(() => { b.textContent = "copy key"; }, 1200);
+    };
     const url = objectUrl(cfg, key);
     const headHtml =
       '<div class="res-prev-head"><span class="fn">' + escapeHtmlR(rec.fn) + '</span>' +
       '<a href="' + url + '" target="_blank" rel="noopener">download ↗</a>' +
-      '<span class="meta">' + fmtSize(rec.size) + ' · md5 ' + rec.etag.slice(0, 10) + '</span></div>';
+      '<span class="meta">' + fmtSize(rec.size) + ' · md5 ' + rec.etag.slice(0, 10) + '</span></div>' +
+      '<div class="res-prev-props">' +
+        '<div class="row"><span class="k">key</span>' +
+          '<code class="res-fullkey">' + escapeHtmlR(key) + '</code>' +
+          '<button class="res-copykey" data-key="' + escapeAttrR(key) + '">copy key</button></div>' +
+        '<div class="row">' +
+          '<span class="k">stage</span><span class="v">' + escapeHtmlR(rec.stage) + '</span>' +
+          '<span class="k">type</span><span class="v">' + escapeHtmlR(rec.type) + '</span>' +
+          '<span class="k">dataset</span><span class="v">' + escapeHtmlR(rec.dataset) + '</span></div>' +
+      '</div>';
     if (rec.size === 0) {
       box.innerHTML = headHtml + '<div class="res-msg">Empty object (0 bytes) — a declared output the run produced with no content.</div>';
       return;
