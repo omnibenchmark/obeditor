@@ -1096,7 +1096,7 @@ let wizardLastResult = null;     // { filtered_yaml, blob_json, blob_packed, par
 let lastIoSummary    = null;     // parsed io_summary rows [{stage, inputs, outputs}] from the last OK check
 
 // ── Source-URL / trust state ─────────────────────────────────────────────────
-const DEFAULT_TRUSTED_ORGS = ["omnibenchmark", "omni-scrna"];
+const DEFAULT_TRUSTED_ORGS = ["omnibenchmark", "omni-scrna", "omni-eccb2026"];
 let loadedSourceUrl = null;      // raw URL the current YAML was fetched from
 
 // ── Monaco setup ─────────────────────────────────────────────────────────────
@@ -1837,7 +1837,7 @@ function openLoadUrlModal() {
              placeholder="https://github.com/&lt;org&gt;/&lt;repo&gt;/blob/&lt;ref&gt;/benchmark.yaml" />
       <div class="hint">
         Accepts <code>github.com/&hellip;/blob/&hellip;</code> or <code>raw.githubusercontent.com/&hellip;</code>.
-        Trusted by default: <code>omnibenchmark</code>, <code>omni-scrna</code>.
+        Trusted by default: <code>omnibenchmark</code>, <code>omni-scrna</code>, <code>omni-eccb2026</code>.
       </div>
       <div class="err" id="modal-err"></div>
     </div>
