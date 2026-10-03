@@ -980,85 +980,94 @@
 const SAMPLE_YAML = `\
 id: clustering_benchmark
 name: "Clustering Benchmark"
-description: "A benchmark for single-cell clustering methods"
-benchmarker: "A. Researcher <researcher@example.org>"
-version: "0.1.0"
-software_backend: "conda"
+description: "Clustering on the Iris and Penguins datasets"
+benchmarker: "OmniBenchmark Team"
+version: "1.0"
+software_backend: conda
 
 software_environments:
-  py_env:
-    name: "Python environment"
-    conda: "envs/conda.yaml"
-  r_env:
-    name: "R environment"
-    conda: "envs/r.yaml"
+  python:
+    description: "Python 3.12"
+    conda: envs/python.yaml
+  R:
+    description: "R 4.4"
+    conda: envs/R.yaml
 
 stages:
-  - id: datasets
+  - id: data
     outputs:
-      - id: data.matrix
-        path: "{dataset}.h5ad"
+      - id: data.features
+        path: "{dataset}.features.csv"
       - id: data.labels
         path: "{dataset}.labels.csv"
     modules:
-      - id: pbmc3k
-        name: "PBMC 3k dataset"
-        software_environment: py_env
+      - id: iris
+        name: "Iris dataset"
+        software_environment: python
         repository:
-          url: https://github.com/omnibenchmark-example/pbmc3k
-          commit: abc1234def5
+          url: https://github.com/omnibenchmark-example/iris
+          commit: 78d23a0
+      - id: penguins
+        name: "Penguins dataset"
+        software_environment: python
+        repository:
+          url: https://github.com/omnibenchmark-example/penguins
+          commit: 3e48199
 
-      - id: simulated
-        name: "Simulated dataset"
-        software_environment: py_env
+  - id: distances
+    inputs: [data.features]
+    outputs:
+      - id: distances
+        path: "{dataset}.distances.csv"
+    modules:
+      - id: D1
+        name: "Pairwise distances"
+        software_environment: python
         repository:
-          url: https://github.com/omnibenchmark-example/simulated
-          commit: deadbeef01
+          url: https://github.com/omnibenchmark-example/distance
+          commit: 649df9c
         parameters:
-          - n_cells: ["500", "2000"]
-            noise: ["low", "high"]
+          - measure: ["cosine", "euclidean", "manhattan", "chebyshev"]
 
   - id: methods
-    inputs:
-      - data.matrix
+    inputs: [distances]
     outputs:
-      - id: clustering.labels
-        path: "{dataset}_clusters.csv"
+      - id: methods.clusters
+        path: "{dataset}.clusters.csv"
     modules:
-      - id: leiden
-        name: "Leiden clustering"
-        software_environment: py_env
-        repository:
-          url: https://github.com/omnibenchmark-example/leiden
-          commit: 1a2b3c4d5e
-        parameters:
-          - resolution: ["0.5", "1.0", "2.0"]
-
       - id: kmeans
         name: "K-means clustering"
-        software_environment: py_env
+        software_environment: python
         repository:
           url: https://github.com/omnibenchmark-example/kmeans
-          commit: 5e4d3c2b1a
-        parameters:
-          - k: ["5", "10", "20"]
+          commit: 60cee11
+      - id: ward
+        name: "Ward hierarchical clustering"
+        software_environment: R
+        repository:
+          url: https://github.com/omnibenchmark-example/ward
+          commit: f24dd42
 
   - id: metrics
-    inputs:
-      - clustering.labels
-      - data.labels
+    inputs: [methods.clusters, data.labels]
     outputs:
-      - id: metrics.ari
-        path: "{dataset}_ari.json"
+      - id: metrics.scores
+        path: "{dataset}.metrics.txt"
     resources:
       cores: 2
     modules:
       - id: ari
         name: "Adjusted Rand Index"
-        software_environment: r_env
+        software_environment: R
         repository:
           url: https://github.com/omnibenchmark-example/ari
-          commit: f0e1d2c3b4
+          commit: 27c5f3f
+      - id: accuracy
+        name: "Accuracy"
+        software_environment: R
+        repository:
+          url: https://github.com/omnibenchmark-example/accuracy
+          commit: 3fedcea
 `;
 
 // ── State ────────────────────────────────────────────────────────────────────
