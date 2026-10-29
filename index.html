@@ -952,10 +952,13 @@ let currentWheelUrl = null;
 // activePicks: the applied filter, as written: { stage_id: { mod_id | "*": "all" | "first" | string[] } }
 //   null = no filter, the right-hand views then describe the parent. Same shape as
 //   `ob run --filter picks.yaml` (omnibenchmark.filter); '*' = every module in the stage.
+// activeUntil: editor-side grammar extension (`until:`), mirrors `ob run --until`; the
+//   exported picks/blob are already cut so ob needs no support for the key.
 const FILTERS_DIR = "filters";   // presets: <dir of benchmark.yaml>/filters/*.{yaml,yml,json,obfilter} in the source repo
 let benchStages     = [];
 let benchParentHash = null;
 let activePicks     = null;
+let activeUntil     = null;      // `until: <stage>` — cut the DAG at that stage (+ ancestors) before picks apply
 let filterResult    = null;      // { filtered_yaml, blob_json, blob_packed, parent_hash, parent_url } for activePicks
 let filterAutoText  = null;      // template text we put in the Filter tab; refreshed until the user edits it
 let lastIoSummary    = null;     // parsed io_summary rows [{stage, inputs, outputs}] from the last OK check
@@ -1879,7 +1882,7 @@ function startWorker(wheelUrl) {
   setOverlay("Initialising Pyodide…");
   setPyodideStatus("loading", "Starting…");
   // Cache-bust: worker.js evolves with index.html; keep them aligned.
-  worker = new Worker("worker.js?v=14");
+  worker = new Worker("worker.js?v=15");
 
   worker.onmessage = ({ data }) => {
     switch (data.type) {
@@ -1970,7 +1973,7 @@ function scheduleConvert(delay = 600) {
   debounceTimer = setTimeout(() => {
     const yaml = yamlModel.getValue();
     setStatus("idle", "Converting…");
-    worker.postMessage({ type: "convert", yaml, picks: activePicks });
+    worker.postMessage({ type: "convert", yaml, picks: activePicks, until: activeUntil });
   }, delay);
 }
 
@@ -1983,7 +1986,7 @@ function requestSnakefile() {
   snakeModel.setValue("# Generating Snakefile…\n");
   runnerModel.setValue("# Generating run.sh…\n");
   setStatus("idle", "Generating Snakefile…");
-  worker.postMessage({ type: "snakefile", yaml: yamlModel.getValue(), picks: activePicks });
+  worker.postMessage({ type: "snakefile", yaml: yamlModel.getValue(), picks: activePicks, until: activeUntil });
 }
 
 // ── UI helpers ───────────────────────────────────────────────────────────────
@@ -2161,7 +2164,7 @@ function renderCheck(ok, errMsg, statsJson, mermaidSrc, ioSummaryJson, mermaidLi
   if (ok) {
     badge.className = "check-badge ok";
     icon.textContent  = "✓";
-    msg.textContent   = "Validation passed" + (activePicks ? " · filtered view" : "");
+    msg.textContent   = "Validation passed" + (filterOn() ? " · filtered view" : "");
   } else {
     badge.className = "check-badge error";
     icon.textContent  = "✗";
@@ -2222,21 +2225,24 @@ function updateBenchData(stagesJson, parentHash, parentUrl) {
   }
   // The result is stale once the parent text changes; regenerate while a filter is applied.
   if (filterResult && filterResult.parent_hash !== benchParentHash) filterResult = null;
-  if (activePicks && !filterResult && benchStages.length) runFilter();
+  if (filterOn() && !filterResult && benchStages.length) runFilter();
   refreshFilterStatus();
   if (activeTab === "filter") renderFilterResult();
 }
 
+function filterOn() { return !!(activePicks || activeUntil); }
+
 function runFilter() {
-  if (!pyodideReady || !activePicks) return;
-  worker.postMessage({ type: "filter", yaml: yamlModel.getValue(), picks: activePicks, derivedFrom: loadedSourceUrl });
+  if (!pyodideReady || !filterOn()) return;
+  worker.postMessage({ type: "filter", yaml: yamlModel.getValue(), picks: activePicks, until: activeUntil, derivedFrom: loadedSourceUrl });
 }
 
-function setActivePicks(picks) {
+function setActivePicks(picks, until = null) {
   activePicks = picks;
+  activeUntil = until;
   filterResult = null;
-  document.getElementById("filter-dot").style.display = picks ? "" : "none";
-  document.getElementById("view-filter-pill").classList.toggle("on", !!picks);
+  document.getElementById("filter-dot").style.display = filterOn() ? "" : "none";
+  document.getElementById("view-filter-pill").classList.toggle("on", filterOn());
   snakefileFresh = false;
   scheduleConvert(0);           // re-derive every view through the lens (or without it)
   refreshFilterStatus();
@@ -2264,12 +2270,16 @@ async function applyFilterText() {
     try { doc = JSON.parse(await gunzipB64(doc)); }
     catch (e) { return refreshFilterStatus("not a filter blob: " + e.message); }
     if (doc.v !== 3) return refreshFilterStatus(`unsupported blob version ${doc.v} (expected 3)`);
-    filterModel.setValue(picksToYaml(doc.picks, "# Unpacked from a .obfilter blob."));
+    filterModel.setValue(picksToYaml(doc.picks, "# Unpacked from a .obfilter blob.", doc.until));
   }
-  const picks = doc && typeof doc === "object" && !Array.isArray(doc) ? doc.picks : undefined;
-  const err = validatePicks(picks);
+  if (!doc || typeof doc !== "object" || Array.isArray(doc)) return refreshFilterStatus("need a top-level `picks:` mapping and/or `until: <stage>`");
+  const until = doc.until ?? null;
+  if (until !== null && typeof until !== "string") return refreshFilterStatus("until: must be a single stage id");
+  const picks = doc.picks ?? null;
+  if (picks === null && until === null) return refreshFilterStatus("need a top-level `picks:` mapping and/or `until: <stage>`");
+  const err = picks === null ? null : validatePicks(picks);   // `until:` alone keeps every surviving stage
   if (err) return refreshFilterStatus(err);
-  setActivePicks(picks);
+  setActivePicks(picks, until);
 }
 
 // Mirrors omnibenchmark.filter.validate_picks.
@@ -2328,8 +2338,9 @@ function pickOrphans(picks) {
 function refreshFilterStatus(errMsg) {
   const el = document.getElementById("filter-tools-status");
   let msg = errMsg || "";
-  if (!errMsg && activePicks && benchStages.length) {
-    const o = pickOrphans(activePicks);
+  if (!errMsg && filterOn() && benchStages.length) {
+    const o = pickOrphans(activePicks || {});
+    if (activeUntil && !benchStages.some(s => s.id === activeUntil)) o.unshift(`until stage ${activeUntil}`);
     if (o.length) msg = `${o.length} pick${o.length === 1 ? "" : "s"} don't resolve (ob run would refuse): ${o.join(", ")}`;
   }
   el.textContent = msg;
@@ -2348,6 +2359,8 @@ function defaultFilterText() {
     "#   <stage>: {<module>: all}       keep every parameter combo",
     "#                       first      first combo only",
     "#                       [h1, h2]   specific combos, by 8-char hash",
+    "#   until: <stage>                 cut the expansion at that stage (+ what feeds it);",
+    "#                                  stages inside the cut not listed in picks keep everything",
     "# A stage left out is pruned. Apply (Ctrl+Enter) subsets the views on the right.",
     "picks:",
   ];
@@ -2365,8 +2378,9 @@ function defaultFilterText() {
   return lines.join("\n") + "\n";
 }
 
-function picksToYaml(picks, header) {
-  return (header ? header + "\n" : "") + jsyaml.dump({ picks }, { flowLevel: 2, lineWidth: 120 });
+function picksToYaml(picks, header, until) {
+  const doc = until ? { until, picks } : { picks };
+  return (header ? header + "\n" : "") + jsyaml.dump(doc, { flowLevel: 2, lineWidth: 120 });
 }
 
 // urlsafe-base64(gzip(json)) → json text, via the browser's native gzip.
@@ -2417,13 +2431,14 @@ async function loadPreset(e) {
 function renderFilterResult() {
   const bodyEl = document.getElementById("filter-body");
   const hint = t => `<div style="color:var(--text-dim);font-size:12px;">${t}</div>`;
-  if (!activePicks) {
+  if (!filterOn()) {
     bodyEl.innerHTML = hint("No filter applied. Write one in the <b>Filter</b> tab on the left (or pick a preset) and press Apply.");
     return;
   }
   const r = filterResult;
   if (!r) { bodyEl.innerHTML = hint("Generating filtered benchmark…"); return; }
-  const ex = expandPicks(activePicks);
+  const effPicks = JSON.parse(r.eff_picks);      // picks after the `until` cut, as the blob carries them
+  const ex = expandPicks(effPicks);
   const nStages = Object.keys(ex).length;
   const nMods   = Object.values(ex).reduce((a, sp) => a + Object.keys(sp).length, 0);
   let nCombos = 0;
@@ -2440,7 +2455,7 @@ function renderFilterResult() {
       <div style="font-size:12px;color:var(--text-dim);">
         ${nStages} stage${nStages===1?"":"s"} · ${nMods} module${nMods===1?"":"s"} ·
         ${nCombos} param combo${nCombos===1?"":"s"} ·
-        subset-of <code>sha256:${escapeHtml(shortHash)}…</code>
+        ${r.until ? 'until <code>' + escapeHtml(r.until) + '</code> · ' : ''}subset-of <code>sha256:${escapeHtml(shortHash)}…</code>
         ${r.parent_url ? '· provenance <code>' + escapeHtml(r.parent_url) + '</code>' : ''}
         ${loadedSourceUrl ? '· derived-from <code>' + escapeHtml(loadedSourceUrl) + '</code>' : ''}
       </div>
@@ -2472,7 +2487,7 @@ function renderFilterResult() {
   document.getElementById("copy-yaml").onclick = () => navigator.clipboard.writeText(r.filtered_yaml);
   document.getElementById("copy-blob").onclick = () => navigator.clipboard.writeText(r.blob_packed);
   document.getElementById("dl-blob").onclick   = () => download(`subset-${shortHash}.obfilter`, r.blob_packed, "application/octet-stream");
-  document.getElementById("dl-picks").onclick  = () => download("picks.obfilter.yaml", picksToYaml(activePicks, "# ob run benchmark.yaml --filter picks.obfilter.yaml"), "text/yaml");
+  document.getElementById("dl-picks").onclick  = () => download("picks.obfilter.yaml", picksToYaml(effPicks, "# ob run benchmark.yaml --filter picks.obfilter.yaml", r.until), "text/yaml");
   document.getElementById("toggle-json").onclick = (e) => {
     const el = document.getElementById("blob-json-out");
     const showing = el.style.display !== "none";

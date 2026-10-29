@@ -114,6 +114,18 @@ Three subtly different concepts — keep them straight:
 - The same mapping, written as YAML under a `picks:` key, is the
   hand-written form (`picks.obfilter.yaml`). The Filter tab edits that
   form; a pasted blob is unpacked into it.
+- **`until: <stage>`** is an editor-side grammar extension (ob has it as
+  the `--until` flag, not in the filter file yet). It cuts the DAG to that
+  stage plus its transitive ancestors (same walk as
+  `omnibenchmark.core._prune.apply_until_filter`, over `stage_adjacency`).
+  With `until`, a stage inside the cut that picks don't mention keeps
+  every module — `until` sets the extent, picks narrow within it; `until:`
+  alone keeps every surviving stage. Without `until`, picks alone decide
+  (ob's rule: an unmentioned stage is pruned). The
+  exported picks/blob carry the **already-cut** picks, so today's
+  `ob run --filter` yields the same slice without knowing `until`; the key
+  rides along in the YAML/blob (ignored by ob) so intent survives a round
+  trip. When ob grows the key, nothing here needs to change.
 - Combos use the 8-char short hash (`Params.hash_short()`) as identity.
   Hashes are computed from canonical JSON of the combo's `{key:value}`
   dict — stable across runs.

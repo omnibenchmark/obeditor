@@ -60,6 +60,31 @@ v = ns["yaml_to_views"](plan, json.dumps(cases["wildcard"]))
 assert v["ok"], v
 assert json.loads(v["stats"])["stages"] == 2 and len(json.loads(v["wizard"])) == len(stages)
 assert "keeps no stage" in ns["yaml_to_views"](plan, json.dumps({}))["error"]  # no silent absence
+# `until:` keeps the named stage + its transitive ancestors, exactly as `ob run --until` does.
+from omnibenchmark.core._prune import apply_until_filter
+from omnibenchmark.core._graph import stage_adjacency
+parents = {}
+for up, down, _ in stage_adjacency(bench):
+    parents.setdefault(down, set()).add(up)
+for st in bench.stages:
+    out = yaml.safe_load(ns["_prune"](plan, None, until=st.id)[0])
+    want = [s.id for s in apply_until_filter(bench.stages, st.id, parents)]
+    assert [s["id"] for s in out["stages"]] == want, (st.id, want)
+    res = ns["filter_benchmark"](plan, None, None, st.id)
+    blob = obfilter.unpack_blob(res["blob_packed"])
+    assert set(blob["picks"]) == set(want) and blob["until"] == st.id, blob
+print(f"ok  until: {len(bench.stages)} cut points match apply_until_filter; blob picks are pre-cut")
+try:
+    ns["_prune"](plan, None, until="nope"); raise SystemExit("until typo accepted")
+except ValueError as e:
+    assert "not found" in str(e)
+# picks beyond the cut are dropped from the effective picks, picks inside survive as written
+last = [s.id for s in apply_until_filter(bench.stages, s1["id"], parents)]
+beyond = next(s.id for s in bench.stages if s.id not in last)
+_, _, _, _, eff = ns["_prune"](plan, {s0["id"]: {"*": "first"}, beyond: {"*": "all"}}, until=s1["id"])
+assert eff == {sid: ({"*": "first"} if sid == s0["id"] else {"*": "all"}) for sid in last}, eff
+print("ok  until + picks compose: until sets the extent, picks narrow inside it, beyond-cut picks dropped")
+
 # Metric collectors over pruned stages are dropped exactly as `ob run --filter` does.
 from omnibenchmark.core._prune import filter_collectors_by_stages
 only_first = {s0["id"]: {"*": "all"}}

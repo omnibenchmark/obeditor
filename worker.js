@@ -235,6 +235,27 @@ const PREVIEW_PY = [
   "        return url + '/tree/' + commit",
   "    return url",
   "",
+  "def _stage_edges(bench):",
+  "    # (upstream_stage_id, stage_id, shared_output_ids) triples. Prefer omnibenchmark's",
+  "    # shared stage_adjacency() so the diagram and `until` stay in lock-step with",
+  "    # `ob describe topology` / `ob run --until`. It exists only in omnibenchmark >= 0.5.4;",
+  "    # older wheels (selectable in the version dropdown) use the equivalent inline walk.",
+  "    try:",
+  "        from omnibenchmark.core._graph import stage_adjacency as _stage_adjacency",
+  "        return _stage_adjacency(bench)",
+  "    except Exception:",
+  "        stage_outs = {st.id: {o.id for o in (st.outputs or [])} for st in bench.stages}",
+  "        seen = set(); edges = []",
+  "        for stage in bench.stages:",
+  "            input_ids = {e for ic in (stage.inputs or []) for e in ic.entries}",
+  "            for prev in bench.stages:",
+  "                if prev.id == stage.id: continue",
+  "                shared = sorted(input_ids & stage_outs.get(prev.id, set()))",
+  "                if shared and (prev.id, stage.id) not in seen:",
+  "                    seen.add((prev.id, stage.id))",
+  "                    edges.append((prev.id, stage.id, shared))",
+  "        return edges",
+  "",
   "def _generate_mermaid(bench):",
   "    _sg = lambda sid: 'sg_' + re.sub(r'[^0-9A-Za-z_]', '_', sid)  # mermaid ids reject hyphens (e.g. EMBED-M)",
   "    stage_outs = {}",
@@ -265,21 +286,7 @@ const PREVIEW_PY = [
   "    # diagram stays in lock-step with `ob describe topology` / the dot export.",
   "    # It exists only in omnibenchmark >= 0.5.4; older wheels (selectable in the",
   "    # version dropdown) fall back to the equivalent inline computation below.",
-  "    try:",
-  "        from omnibenchmark.core._graph import stage_adjacency as _stage_adjacency",
-  "        _edges = _stage_adjacency(bench)",
-  "    except Exception:",
-  "        _seen = set()",
-  "        _edges = []",
-  "        for stage in bench.stages:",
-  "            input_ids = {e for ic in (stage.inputs or []) for e in ic.entries}",
-  "            for prev in bench.stages:",
-  "                if prev.id == stage.id: continue",
-  "                shared = sorted(input_ids & stage_outs.get(prev.id, set()))",
-  "                if shared and (prev.id, stage.id) not in _seen:",
-  "                    _seen.add((prev.id, stage.id))",
-  "                    _edges.append((prev.id, stage.id, shared))",
-  "    for prev_id, stage_id, shared in _edges:",
+  "    for prev_id, stage_id, shared in _stage_edges(bench):",
   "        label = ', '.join(shared)",
   "        lines.append(f'    {_sg(prev_id)} -->|\"{label}\"| {_sg(stage_id)}')",
   "    lines.append('    classDef ep_default fill:#1f5132,stroke:#3fb950,color:#e6ffed')",
@@ -499,10 +506,28 @@ const PREVIEW_PY = [
   "    if mid in stage_picks: return stage_picks[mid]",
   "    return stage_picks.get('*')",
   "",
-  "def _prune(yaml_content, picks, derived_from=None, bench=None):",
-  "    # Apply picks to the raw YAML dict -- same semantics as `ob run --filter`:",
-  "    # a stage absent from picks is dropped; '*' keeps every module; a module spec is",
-  "    # 'all' | 'first' | [combo hashes]. Returns (filtered_yaml, parent_hash, parent_url, parent_bench).",
+  "def _until_keep(bench, until):",
+  "    # Mirrors omnibenchmark.core._prune.apply_until_filter: the named stage plus its",
+  "    # transitive ancestors by declared inputs/outputs, not by declaration order.",
+  "    ids = [st.id for st in bench.stages]",
+  "    if until not in ids:",
+  "        raise ValueError(f\"until: stage '{until}' not found. Available stages: {', '.join(ids)}\")",
+  "    parents = {}",
+  "    for up_id, down_id, _ in _stage_edges(bench):",
+  "        parents.setdefault(down_id, set()).add(up_id)",
+  "    keep = {until}; queue = [until]",
+  "    while queue:",
+  "        for up in parents.get(queue.pop(), ()):",
+  "            if up not in keep:",
+  "                keep.add(up); queue.append(up)",
+  "    return keep",
+  "",
+  "def _prune(yaml_content, picks, derived_from=None, bench=None, until=None):",
+  "    # Apply a filter to the raw YAML dict -- same semantics as `ob run --until X --filter`:",
+  "    # `until` first cuts the DAG to that stage + its ancestors; then picks apply to what is",
+  "    # left: a stage absent from picks is dropped; '*' keeps every module; a module spec is",
+  "    # 'all' | 'first' | [combo hashes]. picks=None (until alone) keeps every surviving stage.",
+  "    # Returns (filtered_yaml, parent_hash, parent_url, parent_bench, effective_picks).",
   "    from omnibenchmark.model.benchmark import Benchmark",
   "    from omnibenchmark.model.params import Params",
   "    raw = _yaml.safe_load(yaml_content)",
@@ -512,6 +537,16 @@ const PREVIEW_PY = [
   "    parent_url = _canonical_url(raw)",
   "    # Pydantic parse so we can re-expand parameter sets when needed.",
   "    if bench is None: bench = Benchmark.from_yaml(yaml_content)",
+  "    kept = _until_keep(bench, until) if until else None",
+  "    if kept is not None:",
+  "        # `until` sets the horizontal extent; picks only narrow within it. A stage inside",
+  "        # the cut that picks don't mention keeps every module (otherwise `until` would",
+  "        # be redundant next to any picks). Without `until`, picks alone decide (ob rules).",
+  "        picks = {**{st.id: {'*': 'all'} for st in bench.stages if st.id in kept}, **(picks or {})}",
+  "    elif picks is None:",
+  "        picks = {st.id: {'*': 'all'} for st in bench.stages}",
+  "    # What a consumer without `until` support needs: the picks already cut, made explicit.",
+  "    eff_picks = {sid: spec for sid, spec in picks.items() if kept is None or sid in kept}",
   "    param_obj_map = {(s.id, m.id): (m.parameters or []) for s in bench.stages for m in s.modules}",
   "    def _apply_spec(new_mod, sid, mid, spec):",
   "        psets = param_obj_map.get((sid, mid)) or []",
@@ -538,7 +573,7 @@ const PREVIEW_PY = [
   "    new_stages = []",
   "    for st in (raw.get('stages') or []):",
   "        sid = st.get('id')",
-  "        stage_picks = picks.get(sid)",
+  "        stage_picks = eff_picks.get(sid)",
   "        if not stage_picks: continue",
   "        modules = []",
   "        for m in (st.get('modules') or []):",
@@ -592,9 +627,9 @@ const PREVIEW_PY = [
   "        if k in out: ordered[k] = out.pop(k)",
   "    ordered.update(out)",
   "    filtered_yaml = _yaml.safe_dump(ordered, sort_keys=False, default_flow_style=False, width=120)",
-  "    return filtered_yaml, parent_hash, parent_url, bench",
+  "    return filtered_yaml, parent_hash, parent_url, bench, eff_picks",
   "",
-  "def yaml_to_views(yaml_content, picks_json=None):",
+  "def yaml_to_views(yaml_content, picks_json=None, until=None):",
   "    # Cheap views (graph / check / io / stage list). Derived straight from the parsed",
   "    # stages -- never expands the lineage DAG, so it can't hang on huge benchmarks.",
   "    # With picks, the views come from the pruned benchmark while 'wizard' (stage list)",
@@ -608,8 +643,9 @@ const PREVIEW_PY = [
   "    except Exception as e:",
   "        return _error_payload(e, yaml_content)",
   "    try:",
-  "        if picks_json:",
-  "            yaml_content = _prune(yaml_content, json.loads(picks_json), bench=bench)[0]",
+  "        if picks_json or until:",
+  "            picks = json.loads(picks_json) if picks_json else None",
+  "            yaml_content = _prune(yaml_content, picks, bench=bench, until=until)[0]",
   "            bench = Benchmark.from_yaml(yaml_content)",
   "        mermaid, mermaid_links = _generate_mermaid(bench)",
   "        io_summary = _generate_io_summary(bench)",
@@ -623,18 +659,19 @@ const PREVIEW_PY = [
   "        return {'ok': True, 'mermaid': mermaid, 'mermaid_links': mermaid_links,",
   "                'io_summary': io_summary, 'stats': json.dumps(stats), **base}",
   "    except Exception as e:",
-  "        if picks_json:",
+  "        if picks_json or until:",
   "            # A line number would point into the pruned text, not the editor: report without one.",
   "            return {'ok': False, 'error': f'filtered view: {type(e).__name__}: {e}', **base}",
   "        return _error_payload(e, yaml_content)",
   "",
-  "def yaml_to_snakefile(yaml_content, picks_json=None):",
+  "def yaml_to_snakefile(yaml_content, picks_json=None, until=None):",
   "    # Expensive: expands every lineage into rules. Generated lazily, only when the",
   "    # Snakefile / run.sh tab is opened. With picks, generated for the pruned benchmark.",
   "    try:",
   "        from omnibenchmark.model.benchmark import Benchmark",
-  "        if picks_json:",
-  "            yaml_content = _prune(yaml_content, json.loads(picks_json))[0]",
+  "        if picks_json or until:",
+  "            picks = json.loads(picks_json) if picks_json else None",
+  "            yaml_content = _prune(yaml_content, picks, until=until)[0]",
   "        bench = Benchmark.from_yaml(yaml_content)",
   "        snakefile, _stats = _generate(bench)",
   "        raw = _yaml.safe_load(yaml_content)",
@@ -642,16 +679,19 @@ const PREVIEW_PY = [
   "        return {'ok': True, 'snakefile': snakefile,",
   "                'runner': _generate_runner(bench, yaml_content, canonical_url)}",
   "    except Exception as e:",
-  "        if picks_json:",
+  "        if picks_json or until:",
   "            return {'ok': False, 'error': f'filtered view: {type(e).__name__}: {e}'}",
   "        return _error_payload(e, yaml_content)",
   "",
-  "def filter_benchmark(yaml_content, picks_json, derived_from=None):",
+  "def filter_benchmark(yaml_content, picks_json, derived_from=None, until=None):",
   "    try:",
-  "        picks = json.loads(picks_json)",
-  "        filtered_yaml, parent_hash, parent_url, bench = _prune(yaml_content, picks, derived_from)",
+  "        picks = json.loads(picks_json) if picks_json else None",
+  "        filtered_yaml, parent_hash, parent_url, bench, eff = _prune(yaml_content, picks, derived_from, until=until)",
   "        # Blob v3 == omnibenchmark.filter.BLOB_VERSION: `ob run --filter` accepts it verbatim.",
-  "        blob = {'v': 3, 'parent': {'sha256': _summary_hash(bench, yaml_content)}, 'picks': picks}",
+  "        # picks are the cut ones, so ob needs no `until` support; the key rides along",
+  "        # (ignored by ob today) so the intent survives a round trip.",
+  "        blob = {'v': 3, 'parent': {'sha256': _summary_hash(bench, yaml_content)}, 'picks': eff}",
+  "        if until: blob['until'] = until",
   "        if parent_url: blob['parent']['url'] = parent_url",
   "        if derived_from: blob['parent']['derived_from'] = derived_from",
   "        blob_json = json.dumps(blob, separators=(',', ':'), sort_keys=True)",
@@ -660,7 +700,7 @@ const PREVIEW_PY = [
   "        ).decode('ascii').rstrip('=')",
   "        return {'ok': True, 'filtered_yaml': filtered_yaml, 'blob_json': blob_json,",
   "                'blob_packed': packed, 'parent_hash': parent_hash,",
-  "                'parent_url': parent_url}",
+  "                'parent_url': parent_url, 'eff_picks': json.dumps(eff), 'until': until}",
   "    except Exception as e:",
   "        import traceback",
   "        return {'ok': False, 'error': f'{type(e).__name__}: {e}',",
@@ -748,13 +788,14 @@ _ver
   }
 }
 
-async function convert(yaml, picks) {
+async function convert(yaml, picks, until) {
   if (!pyodide) return;
   try {
     // Pass yaml via globals to avoid any quoting/injection issues
     pyodide.globals.set("_yaml_input", yaml);
     pyodide.globals.set("_picks_json", picks ? JSON.stringify(picks) : null);
-    const result = await pyodide.runPythonAsync("yaml_to_views(_yaml_input, _picks_json)");
+    pyodide.globals.set("_until", until || null);
+    const result = await pyodide.runPythonAsync("yaml_to_views(_yaml_input, _picks_json, _until)");
     const obj = result.toJs({ dict_converter: Object.fromEntries });
     result.destroy();
     self.postMessage({ type: "result", ok: obj.ok, stats: obj.stats, mermaid: obj.mermaid, mermaid_links: obj.mermaid_links, io_summary: obj.io_summary, error: obj.error, line: obj.line, wizard: obj.wizard, parent_hash: obj.parent_hash, parent_url: obj.parent_url });
@@ -763,12 +804,13 @@ async function convert(yaml, picks) {
   }
 }
 
-async function genSnakefile(yaml, picks) {
+async function genSnakefile(yaml, picks, until) {
   if (!pyodide) return;
   try {
     pyodide.globals.set("_yaml_input", yaml);
     pyodide.globals.set("_picks_json", picks ? JSON.stringify(picks) : null);
-    const result = await pyodide.runPythonAsync("yaml_to_snakefile(_yaml_input, _picks_json)");
+    pyodide.globals.set("_until", until || null);
+    const result = await pyodide.runPythonAsync("yaml_to_snakefile(_yaml_input, _picks_json, _until)");
     const obj = result.toJs({ dict_converter: Object.fromEntries });
     result.destroy();
     self.postMessage({ type: "snakefile", ok: obj.ok, snakefile: obj.snakefile, runner: obj.runner, error: obj.error, line: obj.line });
@@ -777,16 +819,17 @@ async function genSnakefile(yaml, picks) {
   }
 }
 
-async function filterCmd({ yaml, picks, derivedFrom }) {
+async function filterCmd({ yaml, picks, until, derivedFrom }) {
   if (!pyodide) return;
   try {
     pyodide.globals.set("_yaml_input", yaml);
-    pyodide.globals.set("_picks_json", JSON.stringify(picks));
+    pyodide.globals.set("_picks_json", picks ? JSON.stringify(picks) : null);
+    pyodide.globals.set("_until", until || null);
     pyodide.globals.set("_derived_from", derivedFrom || null);
-    const result = await pyodide.runPythonAsync("filter_benchmark(_yaml_input, _picks_json, _derived_from)");
+    const result = await pyodide.runPythonAsync("filter_benchmark(_yaml_input, _picks_json, _derived_from, _until)");
     const obj = result.toJs({ dict_converter: Object.fromEntries });
     result.destroy();
-    self.postMessage({ type: "filtered", ok: obj.ok, filtered_yaml: obj.filtered_yaml, blob_json: obj.blob_json, blob_packed: obj.blob_packed, parent_hash: obj.parent_hash, parent_url: obj.parent_url, error: obj.error });
+    self.postMessage({ type: "filtered", ok: obj.ok, filtered_yaml: obj.filtered_yaml, blob_json: obj.blob_json, blob_packed: obj.blob_packed, parent_hash: obj.parent_hash, parent_url: obj.parent_url, eff_picks: obj.eff_picks, until: obj.until, error: obj.error });
   } catch (e) {
     self.postMessage({ type: "filtered", ok: false, error: e.message });
   }
@@ -794,7 +837,7 @@ async function filterCmd({ yaml, picks, derivedFrom }) {
 
 self.onmessage = async ({ data }) => {
   if (data.type === "init")    await init(data.wheelUrl);
-  if (data.type === "convert") await convert(data.yaml, data.picks);
-  if (data.type === "snakefile") await genSnakefile(data.yaml, data.picks);
+  if (data.type === "convert") await convert(data.yaml, data.picks, data.until);
+  if (data.type === "snakefile") await genSnakefile(data.yaml, data.picks, data.until);
   if (data.type === "filter")  await filterCmd(data);
 };
