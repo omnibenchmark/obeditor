@@ -56,7 +56,7 @@
     background: var(--accent-dim);
     color: #fff;
   }
-  #version-select {
+  #version-select, #filter-preset {
     font-family: inherit;
     font-size: 11px;
     background: var(--bg);
@@ -66,8 +66,8 @@
     padding: 3px 6px;
     cursor: pointer;
   }
-  #version-select:hover { border-color: var(--accent); }
-  #version-select:disabled { opacity: .5; cursor: wait; }
+  #version-select:hover, #filter-preset:hover { border-color: var(--accent); }
+  #version-select:disabled, #filter-preset:disabled { opacity: .5; cursor: wait; }
   #version-label {
     font-size: 11px;
     color: var(--text-dim);
@@ -126,7 +126,8 @@
     display: none;
     align-items: center;
     gap: 4px;
-    margin-left: 12px;
+    margin-left: auto;
+    margin-right: 10px;
   }
   #repo-tag.show { display: inline-flex; }
   #repo-tag a {
@@ -171,7 +172,7 @@
     border-bottom: 2px solid var(--accent);
     background: rgba(0,120,212,.08);
   }
-  #tab-copy, #tab-download, #comment-btn {
+  #tab-copy, #tab-download, #comment-btn, #filter-tools button, #view-filter-pill button {
     align-self: center;
     font-size: 11px;
     padding: 2px 8px;
@@ -183,9 +184,23 @@
     transition: all .15s;
   }
   #comment-btn { margin-left: 8px; }
-  #tab-copy { margin-left: auto; margin-right: 8px; }
+  #tab-copy { margin-right: 8px; }
   #tab-download { margin-right: 10px; }
-  #tab-copy:hover, #tab-download:hover, #comment-btn:hover { border-color: var(--accent); color: var(--text); }
+  #tab-copy:hover, #tab-download:hover, #comment-btn:hover, #filter-tools button:hover, #view-filter-pill button:hover { border-color: var(--accent); color: var(--text); }
+
+  /* left tabs + filter tools */
+  #left-tabs { padding: 0; text-transform: none; letter-spacing: .5px; }
+  #filter-dot { color: var(--accent); }
+  #filter-tools { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; flex: 1; min-width: 0; }
+  #filter-tools-status { font-size: 11px; color: var(--text-dim); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #filter-tools-status.err { color: var(--error); }
+  #view-filter-pill {
+    visibility: hidden;            /* keeps its slot so Copy/Download stay right-aligned */
+    margin-left: auto; align-self: center;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding-right: 8px; font-size: 11px; color: var(--accent); white-space: nowrap;
+  }
+  #view-filter-pill.on { visibility: visible; }
 
   /* ── Editors container ── */
   #editors {
@@ -623,167 +638,11 @@
     overflow: hidden;
   }
   #filter-pane.hidden { display: none; }
-  #filter-stepper {
-    display: flex;
-    gap: 6px;
-    padding: 14px 20px;
-    border-bottom: 1px solid var(--border);
-    flex-wrap: wrap;
-    align-items: center;
-    background: var(--surface);
-  }
-  .step-pill {
-    font-size: 11px;
-    padding: 4px 10px;
-    border-radius: 11px;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    color: var(--text-dim);
-    white-space: nowrap;
-  }
-  .step-pill.active { color: #fff; border-color: var(--accent); background: var(--accent-dim); }
-  .step-pill.done   { color: var(--ok); border-color: var(--ok); }
-  .step-pill .count { opacity: .7; margin-left: 4px; font-size: 10px; }
   #filter-body {
     flex: 1;
     overflow-y: auto;
     padding: 20px 24px;
   }
-  #filter-body h2 {
-    font-size: 13px;
-    color: var(--text);
-    margin-bottom: 4px;
-  }
-  #filter-body .stage-hint {
-    font-size: 12px;
-    color: var(--text-dim);
-    margin-bottom: 14px;
-  }
-  .module-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 12px;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    margin-bottom: 6px;
-    background: var(--surface);
-    cursor: pointer;
-    user-select: none;
-  }
-  .module-row:hover { border-color: var(--accent); }
-  .module-row input { cursor: pointer; }
-  .module-row .mid { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--text); }
-  .module-row .mname { color: var(--text-dim); font-size: 12px; margin-left: 4px; }
-  .module-row .row-spacer { flex: 1; }
-  .module-row .param-mode {
-    font-family: inherit;
-    font-size: 11px;
-    background: var(--bg);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    padding: 2px 6px;
-    margin-left: 8px;
-  }
-  .module-row .param-mode:hover:not(:disabled) { border-color: var(--accent); }
-  .module-row .param-mode:disabled { opacity: .5; }
-  .module-row .pcount {
-    font-size: 10px;
-    color: var(--text-dim);
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    padding: 1px 7px;
-    margin-left: 6px;
-  }
-  .module-row .pcount.warn { color: var(--error); border-color: var(--error); }
-  .combo-list {
-    margin: 4px 0 8px 28px;
-    padding: 8px 12px;
-    border-left: 2px solid var(--border);
-    background: rgba(255,255,255,.02);
-    border-radius: 0 4px 4px 0;
-  }
-  .combo-list-head {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 11px;
-    color: var(--text-dim);
-    margin-bottom: 6px;
-  }
-  .combo-list-head a { color: var(--accent); cursor: pointer; }
-  .combo-list-head a:hover { text-decoration: underline; }
-  .combo-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 3px 4px;
-    font-size: 11px;
-    cursor: pointer;
-    border-radius: 3px;
-  }
-  .combo-row:hover { background: rgba(255,255,255,.04); }
-  .combo-row .ccli {
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    color: var(--text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-    min-width: 0;
-  }
-  .combo-row .chash {
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    color: var(--text-dim);
-    font-size: 10px;
-  }
-  .combo-list-more {
-    font-size: 11px;
-    color: var(--accent);
-    cursor: pointer;
-    margin-top: 4px;
-  }
-  .combo-list-more:hover { text-decoration: underline; }
-  .combo-list-warn {
-    font-size: 11px;
-    color: var(--error);
-    margin-top: 4px;
-  }
-  .selectall {
-    font-size: 11px;
-    color: var(--text-dim);
-    margin-bottom: 10px;
-    display: flex;
-    gap: 12px;
-  }
-  .selectall a { color: var(--accent); cursor: pointer; text-decoration: none; }
-  .selectall a:hover { text-decoration: underline; }
-  #filter-footer {
-    border-top: 1px solid var(--border);
-    padding: 10px 20px;
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    background: var(--surface);
-  }
-  #filter-footer button {
-    font-family: inherit;
-    font-size: 12px;
-    padding: 6px 14px;
-    background: var(--bg);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    cursor: pointer;
-  }
-  #filter-footer button:hover:not(:disabled) { border-color: var(--accent); color: #fff; }
-  #filter-footer button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-  #filter-footer button.primary:hover:not(:disabled) { background: #1a8ae0; }
-  #filter-footer button:disabled { opacity: .4; cursor: not-allowed; }
-  #filter-footer .spacer { flex: 1; }
-  #filter-footer .filter-status { font-size: 11px; color: var(--text-dim); }
   .result-section { margin-bottom: 18px; }
   .result-section h3 {
     font-size: 11px;
@@ -871,10 +730,17 @@
 </div>
 
 <div id="pane-bar">
-  <div class="pane-label">
-    benchmark.yaml
-    <span class="badge">YAML</span>
+  <div class="pane-label" id="left-tabs">
+    <button class="tab-btn active" data-ltab="yaml">benchmark.yaml</button>
+    <button class="tab-btn" data-ltab="filter">Filter<span id="filter-dot" title="A filter is applied" style="display:none"> ●</span></button>
     <button id="comment-btn" title="Comment / uncomment selected lines (Ctrl+/)">Comment</button>
+    <span id="filter-tools" style="display:none">
+      <select id="filter-preset" disabled title="Filters found in the source repo, in a filters/ folder next to benchmark.yaml"><option value="">presets…</option></select>
+      <button id="filter-apply" title="Apply this filter to the views on the right (Ctrl+Enter)">Apply</button>
+      <button id="filter-unapply" title="Remove the applied filter (keeps the text)">Clear</button>
+      <button id="filter-template" title="Replace the text with a template listing every stage, module and combo hash">Template</button>
+      <span id="filter-tools-status"></span>
+    </span>
     <span id="repo-tag" title="Source repository on GitHub">
       <a id="repo-tag-org" target="_blank" rel="noopener"></a>
       <span class="sep">/</span>
@@ -892,11 +758,12 @@
       run.sh
     </button>
     <button class="tab-btn" data-tab="filter">
-      Filter
+      Filtered
     </button>
     <button class="tab-btn" data-tab="results">
       Results
     </button>
+    <span id="view-filter-pill" title="The views on the right are computed from the filtered benchmark">⊂ filtered view <button id="view-filter-clear" title="Remove the filter">✕</button></span>
     <button id="tab-copy" title="Copy to clipboard" style="display:none">Copy</button>
     <button id="tab-download" title="Download as a file" style="display:none">Download</button>
   </div>
@@ -942,18 +809,7 @@
       </div>
     </div>
     <div id="filter-pane" class="hidden">
-      <div id="filter-stepper"></div>
-      <div id="filter-body">
-        <div id="filter-empty" style="color:var(--text-dim);font-size:12px;">
-          Waiting for a valid benchmark…
-        </div>
-      </div>
-      <div id="filter-footer" style="display:none;">
-        <button id="filter-back">‹ Back</button>
-        <button id="filter-next" class="primary">Next ›</button>
-        <div class="spacer"></div>
-        <span class="filter-status" id="filter-status"></span>
-      </div>
+      <div id="filter-body"></div>
     </div>
     <div id="results-pane" class="hidden"></div>
     <div id="snake-editor" style="width:100%;height:100%;display:none;"></div>
@@ -1071,7 +927,10 @@ stages:
 `;
 
 // ── State ────────────────────────────────────────────────────────────────────
-let yamlEditor  = null;
+let yamlEditor  = null;         // left: one editor, two models (benchmark.yaml / filter)
+let yamlModel   = null;
+let filterModel = null;
+let activeLeftTab = "yaml";
 let rightEditor = null;          // single editor, two models
 let snakeModel  = null;
 let runnerModel = null;
@@ -1087,21 +946,18 @@ let errorDecorations = null;
 let releaseCatalog = null;       // { default, releases: [{version,label,url,hidden}] }
 let currentWheelUrl = null;
 
-// ── Filter wizard state ──────────────────────────────────────────────────────
-// wizardStages: [{id, modules:[{id, name, params:[{hash, items, cli}] | null}]}]
-// wizardPicks:  { stage_id: { mod_id: "all" | "first" | string[] } }
-//   - module absent from object  → not picked
-//   - "all"                      → keep parameters as-is (default)
-//   - "first"                    → keep first combo of first set
-//   - string[]                   → keep listed combo hashes
-const COMBO_INLINE_LIMIT  = 50;
-const COMBO_HARD_LIMIT    = 500;
-let wizardStages = [];
-let wizardStep   = 0;
-let wizardPicks  = {};
-let wizardParentHash = null;
-let wizardParentUrl  = null;
-let wizardLastResult = null;     // { filtered_yaml, blob_json, blob_packed, parent_hash, parent_url }
+// ── Filter state ─────────────────────────────────────────────────────────────
+// benchStages: [{id, modules:[{id, name, params:[{hash, items, cli}] | null}]}] — the
+//   parent benchmark as parsed by the worker (drives the template + orphan check).
+// activePicks: the applied filter, as written: { stage_id: { mod_id | "*": "all" | "first" | string[] } }
+//   null = no filter, the right-hand views then describe the parent. Same shape as
+//   `ob run --filter picks.yaml` (omnibenchmark.filter); '*' = every module in the stage.
+const FILTERS_DIR = "filters";   // presets: <dir of benchmark.yaml>/filters/*.{yaml,yml,json,obfilter} in the source repo
+let benchStages     = [];
+let benchParentHash = null;
+let activePicks     = null;
+let filterResult    = null;      // { filtered_yaml, blob_json, blob_packed, parent_hash, parent_url } for activePicks
+let filterAutoText  = null;      // template text we put in the Filter tab; refreshed until the user edits it
 let lastIoSummary    = null;     // parsed io_summary rows [{stage, inputs, outputs}] from the last OK check
 
 // ── Source-URL / trust state ─────────────────────────────────────────────────
@@ -1113,9 +969,10 @@ require.config({ paths: { vs: "https://cdnjs.cloudflare.com/ajax/libs/monaco-edi
 
 require(["vs/editor/editor.main"], () => {
   // Left: YAML editor
+  yamlModel   = monaco.editor.createModel(SAMPLE_YAML, "yaml");
+  filterModel = monaco.editor.createModel("", "yaml");
   yamlEditor = monaco.editor.create(document.getElementById("yaml-editor"), {
-    value: SAMPLE_YAML,
-    language: "yaml",
+    model: yamlModel,
     theme: "vs-dark",
     fontSize: 13,
     minimap: { enabled: false },
@@ -1143,7 +1000,8 @@ require(["vs/editor/editor.main"], () => {
     tabSize: 4,
   });
 
-  yamlEditor.onDidChangeModelContent(() => scheduleConvert());
+  yamlModel.onDidChangeContent(() => scheduleConvert());
+  yamlEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => { if (activeLeftTab === "filter") applyFilterText(); });
 
   // Tab switching
   document.querySelectorAll(".tab-btn[data-tab]").forEach(btn => {
@@ -1166,7 +1024,7 @@ require(["vs/editor/editor.main"], () => {
         rightEditor.layout();
         if (!snakefileFresh) requestSnakefile();
       }
-      if (isFilter) renderWizard();
+      if (isFilter) renderFilterResult();
       if (isResults) showResults();
     });
   });
@@ -1205,21 +1063,21 @@ require(["vs/editor/editor.main"], () => {
   // Pull stage ids and dataset names out of the benchmark YAML so the results
   // browser can classify object keys for THIS benchmark, not a hardcoded demo.
   // Prefer the authoritative stage list from the omnibenchmark parse — the same
-  // source the Check tab's I/O table uses, surfaced here via `wizardStages`
+  // source the Check tab's I/O table uses, surfaced here via `benchStages`
   // (stage → modules) and `lastIoSummary` (stage → inputs/outputs). A local
   // js-yaml scan can under-count stages the real parser resolves, so the two
   // panels would otherwise disagree. Returns null until a successful check has
   // run (YAML mid-edit or invalid), so callers fall back to the js-yaml scan.
   function metaFromWorker() {
-    if (!wizardStages || !wizardStages.length) return null;
-    const stages = wizardStages.map(st => String(st.id));
+    if (!benchStages || !benchStages.length) return null;
+    const stages = benchStages.map(st => String(st.id));
     // Root stages (no inputs) name their modules after datasets.
     const rootIds = new Set(
       (lastIoSummary || [])
         .filter(r => !r.inputs || r.inputs.length === 0)
         .map(r => String(r.stage)));
     const datasets = new Set();
-    for (const st of wizardStages) {
+    for (const st of benchStages) {
       if (!rootIds.has(String(st.id))) continue;
       for (const m of st.modules || []) if (m && m.id != null) datasets.add(String(m.id));
     }
@@ -1311,7 +1169,7 @@ require(["vs/editor/editor.main"], () => {
 
   function showResults() {
     const pane = document.getElementById("results-pane");
-    const yamlText = yamlEditor.getValue();
+    const yamlText = yamlModel.getValue();
     const cfg = readStorageConfig(yamlText);
     const meta = readBenchmarkMeta(yamlText);
     resState.meta = meta;
@@ -1711,20 +1569,13 @@ require(["vs/editor/editor.main"], () => {
     setTimeout(() => toast.remove(), 6000);
   }
 
-  // Filter footer buttons
-  document.getElementById("filter-back").addEventListener("click", () => {
-    if (wizardStep > 0) { wizardStep--; renderWizard(); }
-  });
-  document.getElementById("filter-next").addEventListener("click", () => {
-    if (wizardStep < wizardStages.length) {
-      // On last stage step, "Generate" triggers filter; otherwise advance.
-      if (wizardStep === wizardStages.length - 1) {
-        runFilter();
-      } else {
-        wizardStep++; renderWizard();
-      }
-    }
-  });
+  // Left tabs + filter tools
+  document.querySelectorAll("#left-tabs .tab-btn").forEach(btn => btn.addEventListener("click", () => setLeftTab(btn.dataset.ltab)));
+  document.getElementById("filter-apply").addEventListener("click", applyFilterText);
+  document.getElementById("filter-unapply").addEventListener("click", () => setActivePicks(null));
+  document.getElementById("view-filter-clear").addEventListener("click", () => setActivePicks(null));
+  document.getElementById("filter-template").addEventListener("click", () => { filterAutoText = defaultFilterText(); filterModel.setValue(filterAutoText); });
+  document.getElementById("filter-preset").addEventListener("change", loadPreset);
 
   // Copy button
   document.getElementById("tab-copy").addEventListener("click", () => {
@@ -1925,7 +1776,7 @@ async function fetchAndLoad(parsed) {
     const text = await resp.text();
     if (aborted) return;
     blankViews();
-    yamlEditor.setValue(text);
+    yamlModel.setValue(text);
     setSourceUrl(parsed.rawUrl);
     closeModal();
     setStatus("ok", `Loaded from ${parsed.org}/${parsed.repo}`);
@@ -1945,6 +1796,7 @@ function setSourceUrl(url) {
     document.getElementById("source-url-text").textContent = url;
     pill.style.display = "";
     const parsed = parseGitHubUrl(url);
+    loadFilterPresets(parsed);
     if (parsed) {
       applyBadgeColors(orgA,  parsed.org);
       applyBadgeColors(repoA, parsed.org + "/" + parsed.repo);
@@ -1959,6 +1811,7 @@ function setSourceUrl(url) {
   } else {
     pill.style.display = "none";
     tag.classList.remove("show");
+    loadFilterPresets(null);
   }
 }
 
@@ -2026,7 +1879,7 @@ function startWorker(wheelUrl) {
   setOverlay("Initialising Pyodide…");
   setPyodideStatus("loading", "Starting…");
   // Cache-bust: worker.js evolves with index.html; keep them aligned.
-  worker = new Worker("worker.js?v=13");
+  worker = new Worker("worker.js?v=14");
 
   worker.onmessage = ({ data }) => {
     switch (data.type) {
@@ -2051,7 +1904,7 @@ function startWorker(wheelUrl) {
         convertSeq++;
         if (data.ok) {
           lastIoSummary = data.io_summary ? JSON.parse(data.io_summary) : null;
-          updateWizardData(data.wizard, data.parent_hash, data.parent_url);
+          updateBenchData(data.wizard, data.parent_hash, data.parent_url);
           setPyodideStatus("ready", "Ready");
           setStatus("ok", "Check updated");
           clearErrorLine();
@@ -2071,7 +1924,8 @@ function startWorker(wheelUrl) {
           setStatus("error", errText.split("\n")[0]);
           markErrorLine(data.line);
           lastIoSummary = null;
-          updateWizardData(null, null, null);
+          // A 'filtered view' error still carries the parent's stage list.
+          updateBenchData(data.wizard ?? null, data.parent_hash, data.parent_url);
         }
         document.getElementById("version-select").disabled = false;
         renderCheck(data.ok, data.error, data.stats, data.mermaid, data.io_summary, data.mermaid_links);
@@ -2099,15 +1953,9 @@ function startWorker(wheelUrl) {
         }
         break;
       case "filtered":
-        if (data.ok) {
-          wizardLastResult = data;
-          wizardStep = wizardStages.length;       // result step
-          renderWizard();
-          setStatus("ok", "Filtered benchmark generated");
-        } else {
-          document.getElementById("filter-status").textContent = "Error: " + (data.error || "unknown");
-          setStatus("error", "Filter failed: " + (data.error || "unknown"));
-        }
+        if (data.ok) { filterResult = data; setStatus("ok", "Filtered benchmark generated"); }
+        else setStatus("error", "Filter failed: " + (data.error || "unknown"));
+        if (activeTab === "filter") renderFilterResult();
         break;
     }
   };
@@ -2120,9 +1968,9 @@ function scheduleConvert(delay = 600) {
   if (!pyodideReady) return;
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
-    const yaml = yamlEditor.getValue();
+    const yaml = yamlModel.getValue();
     setStatus("idle", "Converting…");
-    worker.postMessage({ type: "convert", yaml });
+    worker.postMessage({ type: "convert", yaml, picks: activePicks });
   }, delay);
 }
 
@@ -2135,7 +1983,7 @@ function requestSnakefile() {
   snakeModel.setValue("# Generating Snakefile…\n");
   runnerModel.setValue("# Generating run.sh…\n");
   setStatus("idle", "Generating Snakefile…");
-  worker.postMessage({ type: "snakefile", yaml: yamlEditor.getValue() });
+  worker.postMessage({ type: "snakefile", yaml: yamlModel.getValue(), picks: activePicks });
 }
 
 // ── UI helpers ───────────────────────────────────────────────────────────────
@@ -2157,8 +2005,8 @@ function setPyodideStatus(state, label) {
 
 function markErrorLine(lineNumber) {
   clearErrorLine();
-  if (!lineNumber || !yamlEditor) return;
-  errorDecorations = yamlEditor.createDecorationsCollection([{
+  if (!lineNumber || !yamlModel) return;
+  errorDecorations = yamlModel.deltaDecorations([], [{
     range: new monaco.Range(lineNumber, 1, lineNumber, 1),
     options: {
       glyphMarginClassName: "error-glyph",
@@ -2169,7 +2017,7 @@ function markErrorLine(lineNumber) {
 }
 
 function clearErrorLine() {
-  if (errorDecorations) { errorDecorations.clear(); errorDecorations = null; }
+  if (errorDecorations && yamlModel) { yamlModel.deltaDecorations(errorDecorations, []); errorDecorations = null; }
 }
 
 function setStatus(cls, msg) {
@@ -2313,7 +2161,7 @@ function renderCheck(ok, errMsg, statsJson, mermaidSrc, ioSummaryJson, mermaidLi
   if (ok) {
     badge.className = "check-badge ok";
     icon.textContent  = "✓";
-    msg.textContent   = "Validation passed";
+    msg.textContent   = "Validation passed" + (activePicks ? " · filtered view" : "");
   } else {
     badge.className = "check-badge error";
     icon.textContent  = "✗";
@@ -2356,414 +2204,281 @@ function renderIoSummary(ioSummaryJson) {
   document.getElementById("io-section").style.display = "";
 }
 
-// ── Filter wizard ────────────────────────────────────────────────────────────
-function updateWizardData(wizardJson, parentHash, parentUrl) {
-  if (typeof wizardJson === "undefined") {
-    console.warn("updateWizardData: worker did not send 'wizard' field — likely a stale worker.js cache. Hard-reload the page (Ctrl+Shift+R).");
-  }
-  if (!wizardJson) {
-    wizardStages = [];
-    wizardPicks = {};
-    wizardParentHash = null;
-    wizardParentUrl = null;
-    wizardLastResult = null;
-    wizardStep = 0;
-    if (activeTab === "filter") renderWizard();
-    return;
-  }
-  const stages = JSON.parse(wizardJson);
-  // Reconcile picks: drop entries for stages/modules no longer present.
-  // For Custom specs, also drop combo hashes that no longer exist.
-  const newPicks = {};
-  for (const st of stages) {
-    const prev = wizardPicks[st.id];
-    if (!prev) continue;
-    const stagePicks = {};
-    for (const m of st.modules) {
-      if (!(m.id in prev)) continue;
-      const spec = prev[m.id];
-      if (Array.isArray(spec)) {
-        const validHashes = new Set((m.params || []).map(p => p.hash));
-        const kept = spec.filter(h => validHashes.has(h));
-        if (kept.length) stagePicks[m.id] = kept;
-        else if (m.params && m.params.length) stagePicks[m.id] = "all";
-        else stagePicks[m.id] = "all";
-      } else {
-        stagePicks[m.id] = spec;
-      }
-    }
-    if (Object.keys(stagePicks).length) newPicks[st.id] = stagePicks;
-  }
-  wizardStages = stages;
-  wizardPicks = newPicks;
-  wizardParentHash = parentHash || null;
-  wizardParentUrl = parentUrl || null;
-  // If user is on a now-out-of-range step, clamp.
-  if (wizardStep > wizardStages.length) wizardStep = wizardStages.length;
-  // Invalidate stale result if YAML changed.
-  if (wizardLastResult && wizardLastResult.parent_hash !== parentHash) {
-    wizardLastResult = null;
-    if (wizardStep === wizardStages.length) wizardStep = Math.max(0, wizardStages.length - 1);
-  }
-  if (activeTab === "filter") renderWizard();
-}
+// ── Filter: a lens over the right-hand views ─────────────────────────────────
+// The parent stays in the editor; applying picks makes Check / Snakefile / run.sh /
+// Filtered describe the pruned benchmark. Picks come from the Filter tab on the
+// left: hand-written YAML, a preset from the repo, or a pasted .obfilter blob.
 
-function renderWizard() {
-  const stepperEl = document.getElementById("filter-stepper");
-  const bodyEl    = document.getElementById("filter-body");
-  const footerEl  = document.getElementById("filter-footer");
-  const backBtn   = document.getElementById("filter-back");
-  const nextBtn   = document.getElementById("filter-next");
-  const statusEl  = document.getElementById("filter-status");
-
-  if (!wizardStages.length) {
-    stepperEl.innerHTML = "";
-    bodyEl.innerHTML = '<div style="color:var(--text-dim);font-size:12px;">No valid benchmark — fix YAML on the left to use Filter.</div>';
-    footerEl.style.display = "none";
-    return;
+function updateBenchData(stagesJson, parentHash, parentUrl) {
+  if (typeof stagesJson === "undefined") {
+    console.warn("updateBenchData: worker did not send 'wizard' field — likely a stale worker.js cache. Hard-reload the page (Ctrl+Shift+R).");
   }
-
-  // Stepper pills
-  stepperEl.innerHTML = "";
-  wizardStages.forEach((st, i) => {
-    const cnt = stagePickCount(st.id);
-    const pill = document.createElement("span");
-    pill.className = "step-pill" + (i === wizardStep ? " active" : (cnt > 0 ? " done" : ""));
-    pill.innerHTML = `${i+1}. ${escapeHtml(st.id)}<span class="count">${cnt}/${st.modules.length}</span>`;
-    stepperEl.appendChild(pill);
-  });
-  const resultPill = document.createElement("span");
-  resultPill.className = "step-pill" + (wizardStep === wizardStages.length ? " active" : "");
-  resultPill.textContent = `${wizardStages.length+1}. result`;
-  stepperEl.appendChild(resultPill);
-
-  if (wizardStep < wizardStages.length) {
-    // Stage step
-    renderStageStep(wizardStages[wizardStep], bodyEl);
-    footerEl.style.display = "";
-    backBtn.disabled = wizardStep === 0;
-    const ok = stageStepIsValid(wizardStages[wizardStep]);
-    nextBtn.disabled = !ok.valid;
-    nextBtn.textContent = (wizardStep === wizardStages.length - 1) ? "Generate ✨" : "Next ›";
-    statusEl.textContent = ok.valid ? "" : ok.reason;
-  } else {
-    // Result step
-    const r = wizardLastResult;
-    if (!r) {
-      bodyEl.innerHTML = '<div style="color:var(--text-dim);font-size:12px;">No filter result yet. Go back and click Generate.</div>';
-      footerEl.style.display = "";
-      backBtn.disabled = false;
-      nextBtn.style.display = "none";
-      return;
-    }
-    const stagesKept = Object.keys(wizardPicks).length;
-    const totalKept  = Object.values(wizardPicks).reduce((a, s) => a + Object.keys(s).length, 0);
-    const totalCombos = totalCombosKept();
-    const shortHash = (r.parent_hash || "").slice(0, 12);
-    bodyEl.innerHTML = `
-      <div class="result-section">
-        <h3>Summary</h3>
-        <div style="font-size:12px;color:var(--text-dim);">
-          ${stagesKept} stage${stagesKept===1?"":"s"} · ${totalKept} module${totalKept===1?"":"s"} ·
-          ${totalCombos} param combo${totalCombos===1?"":"s"} ·
-          subset-of <code>sha256:${escapeHtml(shortHash)}…</code>
-          ${r.parent_url ? '· provenance <code>' + escapeHtml(r.parent_url) + '</code>' : ''}
-          ${loadedSourceUrl ? '· derived-from <code>' + escapeHtml(loadedSourceUrl) + '</code>' : ''}
-        </div>
-      </div>
-      <div class="result-section">
-        <h3>Filtered benchmark.yaml</h3>
-        <pre id="filtered-yaml-out"></pre>
-        <div class="result-actions">
-          <button id="dl-yaml">Download benchmark.filtered.yaml</button>
-          <button id="copy-yaml">Copy</button>
-        </div>
-      </div>
-      <div class="result-section">
-        <h3>Selection blob <span style="color:var(--text-dim);font-weight:normal;">(packed for CLI)</span></h3>
-        <textarea id="blob-packed-out" readonly rows="3"></textarea>
-        <div class="result-actions">
-          <button id="copy-blob">Copy</button>
-          <button id="dl-blob">Download .obfilter</button>
-          <button id="toggle-json">Show JSON</button>
-        </div>
-        <pre id="blob-json-out" style="display:none;margin-top:6px;"></pre>
-      </div>
-    `;
-    document.getElementById("filtered-yaml-out").textContent = r.filtered_yaml;
-    document.getElementById("blob-packed-out").value = r.blob_packed;
-    document.getElementById("blob-json-out").textContent = prettyJson(r.blob_json);
-    document.getElementById("dl-yaml").onclick   = () => download("benchmark.filtered.yaml", r.filtered_yaml, "text/yaml");
-    document.getElementById("copy-yaml").onclick = () => navigator.clipboard.writeText(r.filtered_yaml);
-    document.getElementById("copy-blob").onclick = () => navigator.clipboard.writeText(r.blob_packed);
-    document.getElementById("dl-blob").onclick   = () => download(`subset-${shortHash}.obfilter`, r.blob_packed, "application/octet-stream");
-    document.getElementById("toggle-json").onclick = (e) => {
-      const el = document.getElementById("blob-json-out");
-      const showing = el.style.display !== "none";
-      el.style.display = showing ? "none" : "";
-      e.target.textContent = showing ? "Show JSON" : "Hide JSON";
-    };
-    footerEl.style.display = "";
-    backBtn.disabled = false;
-    nextBtn.style.display = "none";
-    statusEl.textContent = "Generated.";
+  benchStages = stagesJson ? JSON.parse(stagesJson) : [];
+  benchParentHash = parentHash || null;
+  // Keep the untouched template in step with the benchmark (new stages show up).
+  if (filterModel && filterAutoText !== null && filterModel.getValue() === filterAutoText) {
+    filterAutoText = defaultFilterText();
+    filterModel.setValue(filterAutoText);
   }
-
-  // Re-show next button if it was hidden in result view.
-  if (wizardStep < wizardStages.length) nextBtn.style.display = "";
+  // The result is stale once the parent text changes; regenerate while a filter is applied.
+  if (filterResult && filterResult.parent_hash !== benchParentHash) filterResult = null;
+  if (activePicks && !filterResult && benchStages.length) runFilter();
+  refreshFilterStatus();
+  if (activeTab === "filter") renderFilterResult();
 }
 
 function runFilter() {
-  if (!pyodideReady) return;
-  const yaml = yamlEditor.getValue();
-  // Picks are already in v2 shape: {stage_id: {mod_id: spec}}.
-  document.getElementById("filter-status").textContent = "Generating…";
-  worker.postMessage({ type: "filter", yaml, picks: wizardPicks, derivedFrom: loadedSourceUrl });
+  if (!pyodideReady || !activePicks) return;
+  worker.postMessage({ type: "filter", yaml: yamlModel.getValue(), picks: activePicks, derivedFrom: loadedSourceUrl });
 }
 
-// ── Wizard helpers ───────────────────────────────────────────────────────────
-function stagePickCount(sid) {
-  const sp = wizardPicks[sid];
-  return sp ? Object.keys(sp).length : 0;
+function setActivePicks(picks) {
+  activePicks = picks;
+  filterResult = null;
+  document.getElementById("filter-dot").style.display = picks ? "" : "none";
+  document.getElementById("view-filter-pill").classList.toggle("on", !!picks);
+  snakefileFresh = false;
+  scheduleConvert(0);           // re-derive every view through the lens (or without it)
+  refreshFilterStatus();
+  if (activeTab === "filter") renderFilterResult();
 }
 
-function combosKeptForModule(stage, mid) {
-  // Returns number of param combinations the spec retains for this module.
-  const sp = wizardPicks[stage.id]; if (!sp) return 0;
-  if (!(mid in sp)) return 0;
-  const m = stage.modules.find(x => x.id === mid);
-  const total = m && m.params ? m.params.length : 0;
-  if (!total) return 1;                  // module without parameters → 1 implicit run
-  const spec = sp[mid];
-  if (spec === "all") return total;
-  if (spec === "first") return 1;
-  if (Array.isArray(spec)) return spec.length;
-  return 0;
-}
-
-function totalCombosKept() {
-  let n = 0;
-  for (const st of wizardStages) {
-    const sp = wizardPicks[st.id]; if (!sp) continue;
-    for (const mid of Object.keys(sp)) n += combosKeptForModule(st, mid);
+function setLeftTab(tab) {
+  activeLeftTab = tab;
+  document.querySelectorAll("#left-tabs .tab-btn").forEach(b => b.classList.toggle("active", b.dataset.ltab === tab));
+  const isFilter = tab === "filter";
+  if (isFilter && !filterModel.getValue().trim()) {
+    filterAutoText = defaultFilterText();
+    filterModel.setValue(filterAutoText);
   }
-  return n;
+  yamlEditor.setModel(isFilter ? filterModel : yamlModel);
+  document.getElementById("filter-tools").style.display = isFilter ? "" : "none";
 }
 
-function stageStepIsValid(stage) {
-  const sp = wizardPicks[stage.id];
-  if (!sp || Object.keys(sp).length === 0) return { valid: false, reason: "Select ≥1 module to continue." };
-  for (const mid of Object.keys(sp)) {
-    const spec = sp[mid];
-    if (Array.isArray(spec) && spec.length === 0) {
-      return { valid: false, reason: `Pick ≥1 combo for ${mid} (or switch to All / First).` };
+async function applyFilterText() {
+  let doc;
+  try { doc = jsyaml.load(filterModel.getValue()); }
+  catch (e) { return refreshFilterStatus("YAML: " + e.message); }
+  if (typeof doc === "string") {
+    // A packed .obfilter blob was pasted: unpack it into editable YAML first.
+    try { doc = JSON.parse(await gunzipB64(doc)); }
+    catch (e) { return refreshFilterStatus("not a filter blob: " + e.message); }
+    if (doc.v !== 3) return refreshFilterStatus(`unsupported blob version ${doc.v} (expected 3)`);
+    filterModel.setValue(picksToYaml(doc.picks, "# Unpacked from a .obfilter blob."));
+  }
+  const picks = doc && typeof doc === "object" && !Array.isArray(doc) ? doc.picks : undefined;
+  const err = validatePicks(picks);
+  if (err) return refreshFilterStatus(err);
+  setActivePicks(picks);
+}
+
+// Mirrors omnibenchmark.filter.validate_picks.
+function validatePicks(picks) {
+  const isMap = v => v && typeof v === "object" && !Array.isArray(v);
+  if (!isMap(picks)) return "need a top-level `picks:` mapping of stage → {module | '*': spec}";
+  for (const [sid, mods] of Object.entries(picks)) {
+    if (!isMap(mods)) return `picks.${sid}: must map module ids (or '*') to a spec`;
+    if ("*" in mods && Object.keys(mods).length > 1) return `picks.${sid}: '*' cannot be mixed with explicit module ids`;
+    for (const [mid, spec] of Object.entries(mods)) {
+      if (spec === "all" || spec === "first") continue;
+      if (Array.isArray(spec) && spec.every(h => typeof h === "string")) continue;
+      return `picks.${sid}.${mid}: spec must be all, first, or a list of combo hashes (quote all-digit hashes)`;
     }
   }
-  return { valid: true };
+  return null;
 }
 
-function setSpec(sid, mid, spec) {
-  if (!wizardPicks[sid]) wizardPicks[sid] = {};
-  wizardPicks[sid][mid] = spec;
-}
-function unsetSpec(sid, mid) {
-  if (!wizardPicks[sid]) return;
-  delete wizardPicks[sid][mid];
-  if (!Object.keys(wizardPicks[sid]).length) delete wizardPicks[sid];
+// Mirrors omnibenchmark.filter.module_spec: explicit module key wins, else the stage's '*'.
+function expandPicks(picks) {
+  const out = {};
+  for (const st of benchStages) {
+    const mods = picks[st.id];
+    if (!mods) continue;
+    const sp = {};
+    for (const m of st.modules) {
+      const spec = m.id in mods ? mods[m.id] : mods["*"];
+      if (spec !== undefined) sp[m.id] = spec;
+    }
+    if (Object.keys(sp).length) out[st.id] = sp;
+  }
+  return out;
 }
 
-// In-memory per-render UI state for "show all combos" expansion (transient).
-const _expandAllCombos = new Set(); // keys: `${sid}:${mid}`
-
-function renderStageStep(stage, bodyEl) {
-  bodyEl.innerHTML = `
-    <h2>Stage <code>${escapeHtml(stage.id)}</code></h2>
-    <div class="stage-hint">
-      Pick at least one module. For modules with parameters, choose
-      <strong>All</strong>, <strong>First</strong> (single combo, debug),
-      or <strong>Custom</strong>.
-    </div>
-    <div class="selectall">
-      <a data-act="all">Select all</a>
-      <a data-act="none">Select none</a>
-      <span style="margin-left:auto;color:var(--text-dim);">${stagePickCount(stage.id)}/${stage.modules.length} modules</span>
-    </div>
-    <div id="filter-modules"></div>
-  `;
-  const modsEl = bodyEl.querySelector("#filter-modules");
-  for (const m of stage.modules) modsEl.appendChild(buildModuleRow(stage, m));
-  bodyEl.querySelectorAll('.selectall a').forEach(a => {
-    a.addEventListener("click", () => {
-      if (a.dataset.act === "all") {
-        for (const m of stage.modules) {
-          if (!wizardPicks[stage.id] || !(m.id in wizardPicks[stage.id])) {
-            setSpec(stage.id, m.id, "all");
-          }
-        }
-      } else {
-        delete wizardPicks[stage.id];
+// Mirrors omnibenchmark.filter.find_orphans: picks that name nothing in the parent.
+// `ob run --filter` refuses to run with these; here they become a status line.
+function pickOrphans(picks) {
+  const out = [];
+  const byId = Object.fromEntries(benchStages.map(s => [s.id, s]));
+  for (const [sid, mods] of Object.entries(picks)) {
+    const st = byId[sid];
+    if (!st) { out.push(`stage ${sid}`); continue; }
+    for (const [mid, spec] of Object.entries(mods)) {
+      const pool = mid === "*" ? st.modules : st.modules.filter(m => m.id === mid);
+      if (!pool.length) { out.push(`module ${sid}/${mid}`); continue; }
+      if (Array.isArray(spec)) {
+        const have = new Set(pool.flatMap(m => (m.params || []).map(p => p.hash)));
+        for (const h of spec) if (!have.has(h)) out.push(`combo ${sid}/${mid}/${h}`);
       }
-      renderWizard();
-    });
-  });
-}
-
-function buildModuleRow(stage, m) {
-  const sp = wizardPicks[stage.id] || {};
-  const isPicked = m.id in sp;
-  const spec = sp[m.id];
-  const params = m.params || [];
-  const hasParams = params.length > 0;
-  const tooMany   = params.length > COMBO_HARD_LIMIT;
-
-  const row = document.createElement("div");
-  row.className = "module-row";
-
-  // Checkbox
-  const cb = document.createElement("input");
-  cb.type = "checkbox";
-  cb.checked = isPicked;
-  cb.addEventListener("change", () => {
-    if (cb.checked) setSpec(stage.id, m.id, "all"); else unsetSpec(stage.id, m.id);
-    renderWizard();
-  });
-  row.appendChild(cb);
-
-  const mid = document.createElement("span");
-  mid.className = "mid";
-  mid.textContent = m.id;
-  row.appendChild(mid);
-
-  if (m.name && m.name !== m.id) {
-    const mname = document.createElement("span");
-    mname.className = "mname";
-    mname.textContent = m.name;
-    row.appendChild(mname);
-  }
-
-  const spacer = document.createElement("span");
-  spacer.className = "row-spacer";
-  row.appendChild(spacer);
-
-  if (hasParams) {
-    const sel = document.createElement("select");
-    sel.className = "param-mode";
-    sel.disabled = !isPicked;
-    sel.title = "Parameter selection mode";
-    const mode = (spec === "first") ? "first" : (Array.isArray(spec) ? "pick" : "all");
-    for (const [v, label] of [
-      ["all",   `All (${params.length} combo${params.length===1?"":"s"})`],
-      ["first", "First (debug)"],
-      ["pick",  tooMany ? `Custom… (disabled, >${COMBO_HARD_LIMIT})` : "Custom…"],
-    ]) {
-      const opt = document.createElement("option");
-      opt.value = v; opt.textContent = label;
-      if (v === "pick" && tooMany) opt.disabled = true;
-      if (v === mode) opt.selected = true;
-      sel.appendChild(opt);
     }
-    sel.addEventListener("change", () => {
-      if (sel.value === "all") setSpec(stage.id, m.id, "all");
-      else if (sel.value === "first") setSpec(stage.id, m.id, "first");
-      else setSpec(stage.id, m.id, Array.isArray(spec) ? spec : []);
-      renderWizard();
-    });
-    row.appendChild(sel);
-
-    const pcount = document.createElement("span");
-    const kept = combosKeptForModule(stage, m.id);
-    pcount.className = "pcount" + (isPicked && Array.isArray(spec) && spec.length === 0 ? " warn" : "");
-    pcount.textContent = isPicked
-      ? `${kept}/${params.length} kept`
-      : `${params.length} combos`;
-    row.appendChild(pcount);
   }
-
-  const wrapper = document.createDocumentFragment();
-  wrapper.appendChild(row);
-
-  if (isPicked && Array.isArray(spec) && hasParams && !tooMany) {
-    wrapper.appendChild(buildComboList(stage, m, spec));
-  }
-  // Wrap into a single element since DocumentFragment doesn't render with margins consistently.
-  const div = document.createElement("div");
-  div.appendChild(wrapper);
-  return div;
+  return out;
 }
 
-function buildComboList(stage, m, spec) {
-  const params = m.params || [];
-  const wrap = document.createElement("div");
-  wrap.className = "combo-list";
+// With a message: show it as an error. Without: recompute orphans for the applied filter.
+function refreshFilterStatus(errMsg) {
+  const el = document.getElementById("filter-tools-status");
+  let msg = errMsg || "";
+  if (!errMsg && activePicks && benchStages.length) {
+    const o = pickOrphans(activePicks);
+    if (o.length) msg = `${o.length} pick${o.length === 1 ? "" : "s"} don't resolve (ob run would refuse): ${o.join(", ")}`;
+  }
+  el.textContent = msg;
+  el.title = msg;
+  el.classList.toggle("err", !!msg);
+}
 
-  const expandKey = `${stage.id}:${m.id}`;
-  const expanded = _expandAllCombos.has(expandKey);
-  const showLimit = expanded ? params.length : Math.min(COMBO_INLINE_LIMIT, params.length);
+function yamlKey(id) { return /^[A-Za-z_][\w.-]*$/.test(id) ? id : JSON.stringify(id); }
 
-  const head = document.createElement("div");
-  head.className = "combo-list-head";
-  const sel = new Set(spec);
-  head.innerHTML = `
-    <a data-act="all">All</a>
-    <a data-act="none">None</a>
-    <span>${sel.size}/${params.length} picked</span>
+// Starting point for a hand-written filter: every stage kept, with each module and
+// its combo hashes listed as comments so nobody has to look hashes up elsewhere.
+function defaultFilterText() {
+  const lines = [
+    "# Filter — same format as `ob run --filter picks.yaml`.",
+    "#   <stage>: {'*': all}            every module in the stage",
+    "#   <stage>: {<module>: all}       keep every parameter combo",
+    "#                       first      first combo only",
+    "#                       [h1, h2]   specific combos, by 8-char hash",
+    "# A stage left out is pruned. Apply (Ctrl+Enter) subsets the views on the right.",
+    "picks:",
+  ];
+  const MAX = 8;   // ponytail: combos listed per module; the rest is "+N more"
+  for (const st of benchStages) {
+    lines.push(`  ${yamlKey(st.id)}: {'*': all}`);
+    for (const m of st.modules) {
+      const ps = m.params || [];
+      const combos = ps.slice(0, MAX).map(p => `${p.hash} (${p.cli})`).join(" · ");
+      const more = ps.length > MAX ? ` · +${ps.length - MAX} more` : "";
+      lines.push(`    # ${m.id}${combos ? ": " + combos + more : ""}`);
+    }
+  }
+  if (!benchStages.length) lines.push("  # (no valid benchmark yet — this fills in once Check is green)");
+  return lines.join("\n") + "\n";
+}
+
+function picksToYaml(picks, header) {
+  return (header ? header + "\n" : "") + jsyaml.dump({ picks }, { flowLevel: 2, lineWidth: 120 });
+}
+
+// urlsafe-base64(gzip(json)) → json text, via the browser's native gzip.
+async function gunzipB64(s) {
+  s = s.trim().replace(/-/g, "+").replace(/_/g, "/");
+  s += "=".repeat((4 - s.length % 4) % 4);
+  const bytes = Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Response(stream).text();
+}
+
+// ── Presets: a filters/ folder next to benchmark.yaml in the (trusted) source repo ──
+async function loadFilterPresets(parsed) {
+  const sel = document.getElementById("filter-preset");
+  sel.innerHTML = '<option value="">presets…</option>';
+  sel.disabled = true;
+  if (!parsed) return;
+  const dir = parsed.path.includes("/") ? parsed.path.replace(/\/[^/]*$/, "/") : "";
+  const api = `https://api.github.com/repos/${parsed.org}/${parsed.repo}/contents/${dir}${FILTERS_DIR}?ref=${encodeURIComponent(parsed.ref)}`;
+  try {
+    const resp = await fetch(api);
+    if (!resp.ok) return;              // no filters/ folder (404) or rate-limited: dropdown stays grey
+    const items = (await resp.json()).filter(f => f.type === "file" && /^[^/]+\.(ya?ml|json|obfilter)$/i.test(f.name));
+    for (const f of items) {
+      const o = document.createElement("option");
+      // Built from the trusted repo coordinates, not from the API's download_url.
+      o.value = `https://raw.githubusercontent.com/${parsed.org}/${parsed.repo}/${parsed.ref}/${dir}${FILTERS_DIR}/${f.name}`;
+      o.textContent = f.name;
+      sel.appendChild(o);
+    }
+    sel.disabled = !items.length;
+  } catch (e) { console.warn("filter presets:", e); }
+}
+
+async function loadPreset(e) {
+  const url = e.target.value;
+  if (!url) return;
+  try {
+    const resp = await fetch(url, { cache: "no-cache" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    filterModel.setValue(await resp.text());
+    setLeftTab("filter");
+    applyFilterText();
+  } catch (err) { refreshFilterStatus("preset: " + err.message); }
+}
+
+// ── Filtered tab (right): the outputs of the applied filter ──────────────────
+function renderFilterResult() {
+  const bodyEl = document.getElementById("filter-body");
+  const hint = t => `<div style="color:var(--text-dim);font-size:12px;">${t}</div>`;
+  if (!activePicks) {
+    bodyEl.innerHTML = hint("No filter applied. Write one in the <b>Filter</b> tab on the left (or pick a preset) and press Apply.");
+    return;
+  }
+  const r = filterResult;
+  if (!r) { bodyEl.innerHTML = hint("Generating filtered benchmark…"); return; }
+  const ex = expandPicks(activePicks);
+  const nStages = Object.keys(ex).length;
+  const nMods   = Object.values(ex).reduce((a, sp) => a + Object.keys(sp).length, 0);
+  let nCombos = 0;
+  for (const st of benchStages) for (const m of st.modules) {
+    const spec = (ex[st.id] || {})[m.id];
+    if (spec === undefined) continue;
+    const ps = m.params || [];
+    nCombos += !ps.length ? 1 : spec === "all" ? ps.length : spec === "first" ? 1 : ps.filter(p => spec.includes(p.hash)).length;
+  }
+  const shortHash = (r.parent_hash || "").slice(0, 12);
+  bodyEl.innerHTML = `
+    <div class="result-section">
+      <h3>Summary</h3>
+      <div style="font-size:12px;color:var(--text-dim);">
+        ${nStages} stage${nStages===1?"":"s"} · ${nMods} module${nMods===1?"":"s"} ·
+        ${nCombos} param combo${nCombos===1?"":"s"} ·
+        subset-of <code>sha256:${escapeHtml(shortHash)}…</code>
+        ${r.parent_url ? '· provenance <code>' + escapeHtml(r.parent_url) + '</code>' : ''}
+        ${loadedSourceUrl ? '· derived-from <code>' + escapeHtml(loadedSourceUrl) + '</code>' : ''}
+      </div>
+    </div>
+    <div class="result-section">
+      <h3>Filtered benchmark.yaml</h3>
+      <pre id="filtered-yaml-out"></pre>
+      <div class="result-actions">
+        <button id="dl-yaml">Download benchmark.filtered.yaml</button>
+        <button id="copy-yaml">Copy</button>
+      </div>
+    </div>
+    <div class="result-section">
+      <h3>Filter for <code>ob run --filter</code></h3>
+      <textarea id="blob-packed-out" readonly rows="3"></textarea>
+      <div class="result-actions">
+        <button id="copy-blob">Copy blob</button>
+        <button id="dl-blob">Download .obfilter</button>
+        <button id="dl-picks">Download picks.yaml</button>
+        <button id="toggle-json">Show JSON</button>
+      </div>
+      <pre id="blob-json-out" style="display:none;margin-top:6px;"></pre>
+    </div>
   `;
-  head.querySelector('[data-act=all]').addEventListener("click", () => {
-    setSpec(stage.id, m.id, params.map(p => p.hash));
-    renderWizard();
-  });
-  head.querySelector('[data-act=none]').addEventListener("click", () => {
-    setSpec(stage.id, m.id, []);
-    renderWizard();
-  });
-  wrap.appendChild(head);
-
-  for (let i = 0; i < showLimit; i++) {
-    const p = params[i];
-    const row = document.createElement("label");
-    row.className = "combo-row";
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.checked = sel.has(p.hash);
-    cb.addEventListener("change", () => {
-      const cur = new Set(Array.isArray(wizardPicks[stage.id]?.[m.id]) ? wizardPicks[stage.id][m.id] : []);
-      if (cb.checked) cur.add(p.hash); else cur.delete(p.hash);
-      setSpec(stage.id, m.id, [...cur]);
-      renderWizard();
-    });
-    row.appendChild(cb);
-    const cli = document.createElement("span");
-    cli.className = "ccli";
-    cli.textContent = p.cli || JSON.stringify(p.items);
-    row.appendChild(cli);
-    const hash = document.createElement("span");
-    hash.className = "chash";
-    hash.textContent = "#" + p.hash;
-    row.appendChild(hash);
-    wrap.appendChild(row);
-  }
-
-  if (params.length > COMBO_INLINE_LIMIT) {
-    const more = document.createElement("div");
-    if (expanded) {
-      more.className = "combo-list-more";
-      more.textContent = `Show fewer (collapse to ${COMBO_INLINE_LIMIT})`;
-      more.addEventListener("click", () => {
-        _expandAllCombos.delete(expandKey);
-        renderWizard();
-      });
-    } else {
-      more.className = "combo-list-more";
-      more.textContent = `Show all ${params.length} combos (${params.length - COMBO_INLINE_LIMIT} more)`;
-      more.addEventListener("click", () => {
-        _expandAllCombos.add(expandKey);
-        renderWizard();
-      });
-    }
-    wrap.appendChild(more);
-  }
-
-  return wrap;
+  document.getElementById("filtered-yaml-out").textContent = r.filtered_yaml;
+  document.getElementById("blob-packed-out").value = r.blob_packed;
+  document.getElementById("blob-json-out").textContent = prettyJson(r.blob_json);
+  document.getElementById("dl-yaml").onclick   = () => download("benchmark.filtered.yaml", r.filtered_yaml, "text/yaml");
+  document.getElementById("copy-yaml").onclick = () => navigator.clipboard.writeText(r.filtered_yaml);
+  document.getElementById("copy-blob").onclick = () => navigator.clipboard.writeText(r.blob_packed);
+  document.getElementById("dl-blob").onclick   = () => download(`subset-${shortHash}.obfilter`, r.blob_packed, "application/octet-stream");
+  document.getElementById("dl-picks").onclick  = () => download("picks.obfilter.yaml", picksToYaml(activePicks, "# ob run benchmark.yaml --filter picks.obfilter.yaml"), "text/yaml");
+  document.getElementById("toggle-json").onclick = (e) => {
+    const el = document.getElementById("blob-json-out");
+    const showing = el.style.display !== "none";
+    el.style.display = showing ? "none" : "";
+    e.target.textContent = showing ? "Show JSON" : "Hide JSON";
+  };
 }
 
 function download(filename, content, mime) {

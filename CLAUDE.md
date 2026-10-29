@@ -61,10 +61,12 @@ This file captures the load-bearing decisions so future changes stay aligned.
   parameters into modern `params:` form (single-valued mappings). Modules
   using `all` are untouched. Don't try to preserve legacy format through
   filtering — the canonical-out / legacy-in mismatch isn't worth it.
-- Combo-level Custom selection is gated by a hard cap (`COMBO_HARD_LIMIT`
-  in `index.html`). Above the cap the UI forces All/First. Don't lift
-  the cap without a virtualized list — rendering 10k checkboxes locks
-  the main thread.
+- Metric collectors whose inputs only come from pruned stages are dropped,
+  mirroring `omnibenchmark.core._prune.filter_collectors_by_stages`. A
+  filter that keeps no stage is an error, not an empty benchmark.
+- `tests/check_filter.py` runs the worker's Python against the real
+  `omnibenchmark.filter` (needs a Python with omnibenchmark ≥ 0.7). Run it
+  whenever `_prune` or the blob changes.
 
 ## Provenance vocabulary
 
@@ -79,6 +81,10 @@ Three subtly different concepts — keep them straight:
 - `subset-of` is content-addressed: SHA-256 of the parent's YAML text
   after normalization (per-line rstrip + trailing newline). Hash is the
   source of truth; URL is a hint.
+- The selection blob's `parent.sha256` is a *different* hash:
+  `Benchmark.summary_hash()` (execution-only fields), because that's what
+  `ob run --filter` compares against. Don't unify them — administrative
+  edits to the parent must not invalidate a slice on the CLI side.
 - `derived-from` is session state. It survives edits — the diverging
   hash already signals modification — but the user can clear it via the
   source-pill `✕`.
@@ -87,12 +93,13 @@ Three subtly different concepts — keep them straight:
 
 ## Selection blob
 
-- Compact JSON → gzip → urlsafe base64 (no padding). Mirror this exactly
-  in any CLI consumer.
-- Schema today (v2):
+- Compact JSON → gzip → urlsafe base64 (no padding). The consumer is
+  `omnibenchmark.filter` (`ob run --filter`); the editor mirrors it, not
+  the other way round. `v` must equal `omnibenchmark.filter.BLOB_VERSION`.
+- Schema today (v3):
   ```
-  {"v":2,"parent":{"sha256":"…","url":"…","derived_from":"…"},
-   "picks":{"<stage_id>":{"<mod_id>": "all" | "first" | ["<combo_hash>", …]}}}
+  {"v":3,"parent":{"sha256":"<summary_hash>","url":"…","derived_from":"…"},
+   "picks":{"<stage_id>":{"<mod_id>" | "*": "all" | "first" | ["<combo_hash>", …]}}}
   ```
   Module spec semantics:
   - `"all"`     — keep `parameters:` block as written (default).
@@ -100,14 +107,19 @@ Three subtly different concepts — keep them straight:
                   single-valued `parameters:` mapping.
   - `string[]`  — keep specific combos by their `Params.hash_short()`;
                   each emitted as one single-valued `parameters:` mapping.
-- A module without `parameters:` always uses `"all"` implicitly; the UI
-  hides the mode selector for it.
+  - `"*"` as module key — every module in the stage; cannot be mixed with
+    explicit module ids. Explicit key wins over `"*"` (`module_spec`).
+- A stage absent from `picks` is pruned. A module without `parameters:`
+  always uses `"all"` implicitly.
+- The same mapping, written as YAML under a `picks:` key, is the
+  hand-written form (`picks.obfilter.yaml`). The Filter tab edits that
+  form; a pasted blob is unpacked into it.
 - Combos use the 8-char short hash (`Params.hash_short()`) as identity.
   Hashes are computed from canonical JSON of the combo's `{key:value}`
   dict — stable across runs.
-- **Bump `v` for every breaking schema change.** v1 (modules-only,
-  `picks: {stage_id: [mod_id…]}`) is retired; we have no v1 consumers to
-  preserve.
+- **Bump `v` for every breaking schema change**, in lockstep with
+  omnibenchmark. v1 (modules-only) and v2 (text-hash parent, no `*`) are
+  retired.
 - Keep JSON canonical: `sort_keys=True`, `separators=(',',':')`,
   `gzip mtime=0`. Same input must produce the same blob bytes.
 
@@ -124,15 +136,31 @@ Three subtly different concepts — keep them straight:
 
 ## UI conventions
 
-- Right pane has tabs (Check / Snakefile / run.sh / Filter). Check and
-  Filter are custom DOM panes; Snakefile and run.sh share one Monaco
-  editor with two models (cheap + avoids re-layout flicker).
-- The Filter wizard is a stage-stepper; picks are subset-not-singleton
-  (checkboxes, ≥1 to advance). Result step renders below the stepper,
-  not as a modal — keeps the YAML editor visible.
-- Picks reconcile across YAML edits: orphaned stage/module IDs are
-  silently dropped, stale results are invalidated when the parent hash
-  changes.
+- Left pane has two tabs sharing one Monaco editor (two models):
+  `benchmark.yaml` and `Filter`. The Filter tab is plain text in the
+  `ob run --filter` YAML format, with a presets dropdown, Apply
+  (Ctrl+Enter), Clear and Template. The stage-stepper wizard was removed
+  (too long for real benchmarks); the Template button lists every
+  module and combo hash as comments instead.
+- Presets are listed from a `filters/` folder next to the loaded
+  `benchmark.yaml` via the GitHub contents API (same trusted repo; raw
+  URLs are rebuilt from the repo coordinates, never taken from the API
+  response). No folder → the dropdown stays disabled; Apply still works.
+- An applied filter is a **lens**: the editor keeps the parent, and
+  Check / Snakefile / run.sh / Filtered are computed from the pruned
+  benchmark (worker `convert`/`snakefile` messages carry `picks`). The
+  `⊂ filtered view` pill on the right and the dot on the Filter tab say
+  so. Errors from the pruned text carry no line number (it would point
+  into text the user can't see).
+- Right pane has tabs (Check / Snakefile / run.sh / Filtered / Results).
+  Check and Filtered are custom DOM panes; Snakefile and run.sh share one
+  Monaco editor with two models (cheap + avoids re-layout flicker).
+  Filtered shows the outputs of the applied filter: filtered YAML, the
+  blob, and the picks YAML.
+- Picks that don't resolve (renamed stage/module, vanished combo hash)
+  are reported in the Filter tab's status line — `ob run --filter`
+  refuses such a filter unless `--allow-drift`. The applied text is kept
+  as written; the stale result is regenerated when the parent changes.
 
 ## Things to *not* do
 
