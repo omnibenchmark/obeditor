@@ -1882,7 +1882,7 @@ function startWorker(wheelUrl) {
   setOverlay("Initialising Pyodide…");
   setPyodideStatus("loading", "Starting…");
   // Cache-bust: worker.js evolves with index.html; keep them aligned.
-  worker = new Worker("worker.js?v=15");
+  worker = new Worker("worker.js?v=16");
 
   worker.onmessage = ({ data }) => {
     switch (data.type) {
@@ -2150,7 +2150,7 @@ function renderStats(statsJson) {
   };
   addChip(stats.stages, "stages");
   addChip(stats.modules, "modules");
-  if (stats.total != null) addChip(stats.total.toLocaleString(), "total rules");
+  if (stats.total != null) addChip((stats.approx ? "≈" : "") + stats.total.toLocaleString(), stats.approx ? "total rules (approx.: ignores requires/gather)" : "total rules");
   for (const [sid, cnt] of Object.entries(stats.by_stage || {})) {
     addChip(cnt, sid);
   }

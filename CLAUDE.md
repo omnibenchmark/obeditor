@@ -30,9 +30,17 @@ This file captures the load-bearing decisions so future changes stay aligned.
   adds an import we don't use, add it to the mock list — don't try to
   load the real package.
 - **Rule of thumb:** we use `omnibenchmark.model.benchmark.Benchmark` and
-  `omnibenchmark.model.params.Params`. That's it. Everything else is
-  reimplemented in `_generate*` helpers because the real Snakefile
-  generator wants the full execution stack.
+  `omnibenchmark.model.params.Params`. On wheels whose expansion API
+  matches (`_has_ob_generator()`: omnibenchmark main, api 0.8) the
+  Snakefile tab and rule counts come from omnibenchmark's own
+  `core._expand` + `backend.snakemake.SnakemakeGenerator`, with module
+  resolution stubbed from the plan (`_stub_module`: no clone, so
+  entrypoints show the plan's key). That covers gather, `requires`/
+  `provides` and capabilities with no reimplementation. Older wheels keep
+  the `_generate*` helpers. `tests/check_ob_generator.py WHEEL PLAN
+  [FILTER N]` runs the worker's Python against a wheel the way the browser
+  does; run it from a bare Python (pydantic + PyYAML only) so a missing
+  mock fails there and not in the browser.
 - The pydantic `Benchmark` schema is **open** (no `extra="forbid"`).
   Unknown top-level keys (`canonical-url`, `subset-of`, `derived-from`)
   pass through validation. Don't add shims to make it strict.
