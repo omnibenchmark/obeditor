@@ -10,11 +10,11 @@
 default: "0.7.0"
 
 releases:
-  - version: "0.7.0.post45+g2d601f30"
-    label: "main 2d601f30 (api 0.8: gather, named outputs)"
-    # Built from omnibenchmark main; no PyPI release carries api 0.8 yet. Uses
+  - version: "0.7.0.post51+gd12743e8"
+    label: "main + #390 + #410 (api 0.8: gather, named outputs)"
+    # Built from btraven00/omnibenchmark integ/gather-390-410 (main c5845a38 + PRs #390 expose, #410 pruned gathers); no PyPI release carries api 0.8 yet. Uses
     # omnibenchmark's own expansion + Snakefile writer for the preview.
-    url: "./omnibenchmark-0.7.0.post45+g2d601f30-py3-none-any.whl"
+    url: "./omnibenchmark-0.7.0.post51+gd12743e8-py3-none-any.whl"
 
   - version: "0.7.0"
     label: "0.7.0 (latest)"
